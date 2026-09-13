@@ -1,29 +1,31 @@
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800;900&family=Jost:wght@400;500;600;700&display=swap');
 
-/* Jessica's palette: deep purple, hot pink, amber — plus a purple-tinted dark
-   ground instead of navy so the whole app reads as one system. Font stack
-   leads with Century Gothic (her house font) and falls back to Jost, a
-   Google-hosted geometric sans that's the closest visual match for people
-   who don't have Century Gothic installed. Orbitron is layered in as a
-   second, HUD-style display face for the home screen's operations-console
-   redesign (brand mark, hero title, big stat numbers) — everything else
-   keeps the original body font untouched. */
+/* "Ocean ruby radiance" palette: deep signal blue, ruby, orange, green,
+   pale ocean-blue — plus a blue-tinted dark ground instead of navy-black so
+   the whole app reads as one system (same idea as the previous
+   purple-tinted ground, just recolored to match this palette's own "ocean"
+   half). Font stack leads with Century Gothic (house font) and falls back
+   to Jost, a Google-hosted geometric sans that's the closest visual match
+   for people who don't have Century Gothic installed. Orbitron is layered
+   in as a second, HUD-style display face for the home screen's
+   operations-console redesign (brand mark, hero title, big stat numbers) —
+   everything else keeps the original body font untouched. */
 :root{
-  --bg: #170f22;
-  --panel: #221732;
-  --panel-2: #2b1e3f;
-  --border: #3e2b57;
-  --text: #f2ecf9;
-  --text-dim: #b5a2cb;
-  --text-faint: #7a6690;
-  --accent-purple: #7c3aed;
-  --accent-pink: #ff2e92;
-  --accent-amber: #ffb020;
+  --bg: #0a1620;
+  --panel: #12222f;
+  --panel-2: #17303f;
+  --border: #234a5e;
+  --text: #eaf6fb;
+  --text-dim: #a8c6d6;
+  --text-faint: #6a8fa3;
+  --accent-purple: #005bb3;
+  --accent-pink: #d8226c;
+  --accent-amber: #f86a38;
   --accent-cyan: var(--accent-pink);
   --accent-orange: var(--accent-pink);
   --accent-teal: var(--accent-amber);
   --accent-gold: var(--accent-amber);
-  --accent-green: #3ecf8e;
+  --accent-green: #029456;
   --accent-red: #ff5470;
   --radius: 8px;
   --font-hud: 'Orbitron', 'Century Gothic', 'Jost', ui-sans-serif, sans-serif;
@@ -31,14 +33,16 @@
   /* Operations-console redesign only (topbar + home screen). Distinct from
      the tokens above so nothing already using --accent-cyan/teal/gold for
      "enemy side" / "filled slot" / "planned status" meaning elsewhere in
-     the app shifts color. */
-  --console-bg: #0a0614;
-  --console-panel: rgba(23, 15, 34, 0.82);
-  --console-border: rgba(139, 92, 246, 0.45);
-  --console-magenta: #ff2e92;
-  --console-raspberry: #d61f7a;
-  --console-icecyan: #22d3ee;
-  --console-icy-blue: #7dd3fc;
+     the app shifts color. Each of the home page's 5 operation cards gets
+     its own hue from the palette (blue/ruby/orange/green/pale-blue) so
+     they read as distinct modules at a glance. */
+  --console-bg: #050d14;
+  --console-panel: rgba(10, 22, 32, 0.82);
+  --console-border: rgba(0, 91, 179, 0.45);
+  --console-magenta: #d8226c;
+  --console-raspberry: #f86a38;
+  --console-icecyan: #029456;
+  --console-icy-blue: #b2dae4;
   --console-snow: #eaf6ff;
 }
 
@@ -65,11 +69,11 @@ input, select, textarea{ font-family:inherit; }
   display:flex; align-items:center; justify-content:space-between; gap:14px;
   padding: 12px 24px 14px 18px;
   background:
-    repeating-linear-gradient(115deg, rgba(139,92,246,0.05) 0 2px, transparent 2px 26px),
-    linear-gradient(180deg, rgba(124,58,237,0.16), rgba(10,6,20,0.2) 70%),
+    repeating-linear-gradient(115deg, rgba(0,91,179,0.05) 0 2px, transparent 2px 26px),
+    linear-gradient(180deg, rgba(0,91,179,0.16), rgba(10,6,20,0.2) 70%),
     var(--console-panel);
   border-bottom: 1px solid var(--console-border);
-  box-shadow: 0 1px 0 rgba(34,211,238,0.3), 0 8px 26px -12px rgba(124,58,237,0.75), inset 0 -1px 0 rgba(255,46,146,0.15);
+  box-shadow: 0 1px 0 rgba(2,148,86,0.3), 0 8px 26px -12px rgba(0,91,179,0.75), inset 0 -1px 0 rgba(216,34,108,0.15);
   clip-path: polygon(0 0, 100% 0, 100% 100%, 22px 100%, 0 calc(100% - 14px));
   overflow:hidden;
   flex-wrap:wrap;
@@ -78,7 +82,7 @@ input, select, textarea{ font-family:inherit; }
   /* thin tri-color HUD strip along the very top edge */
   content:""; position:absolute; top:0; left:0; right:0; height:2.5px;
   background: linear-gradient(90deg, var(--accent-purple), var(--console-magenta) 45%, var(--console-icecyan) 75%, var(--accent-amber));
-  box-shadow: 0 0 12px 1px rgba(255,46,146,0.55);
+  box-shadow: 0 0 12px 1px rgba(216,34,108,0.55);
   opacity:.95;
 }
 .topbar-group{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
@@ -87,12 +91,12 @@ input, select, textarea{ font-family:inherit; }
   width:28px; height:28px; flex:none;
   background: linear-gradient(135deg, var(--accent-purple), var(--console-magenta));
   clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-  box-shadow: 0 0 12px rgba(255,46,146,0.65), 0 0 22px rgba(124,58,237,0.55);
+  box-shadow: 0 0 12px rgba(216,34,108,0.65), 0 0 22px rgba(0,91,179,0.55);
 }
 .topbar .brand-text{ display:flex; flex-direction:column; gap:2px; line-height:1; }
 .topbar .brand .name{
   color: var(--text); font-family:var(--font-hud); font-weight:800; letter-spacing:1.5px; font-size:17px;
-  text-shadow: 0 0 14px rgba(255,46,146,0.55), 0 0 26px rgba(124,58,237,0.45);
+  text-shadow: 0 0 14px rgba(216,34,108,0.55), 0 0 26px rgba(0,91,179,0.45);
 }
 .topbar .brand .ver{ color: var(--console-icecyan); font-size:10px; letter-spacing:1px; }
 .topbar .brand-sub{ color:var(--text-faint); font-size:8.5px; letter-spacing:2.5px; margin-top:1px; }
@@ -100,9 +104,9 @@ input, select, textarea{ font-family:inherit; }
 .topbar .admin-chip{
   display:flex; align-items:center; gap:6px;
   color: var(--accent-gold); font-size:10.5px; letter-spacing:1.5px; font-weight:800;
-  border:1px solid rgba(255,176,32,0.65); background:linear-gradient(180deg, rgba(255,176,32,0.16), rgba(255,176,32,0.04));
+  border:1px solid rgba(248,106,56,0.65); background:linear-gradient(180deg, rgba(248,106,56,0.16), rgba(248,106,56,0.04));
   padding:6px 12px; clip-path: polygon(8px 0,100% 0,100% 100%,0 100%,0 8px);
-  box-shadow: 0 0 14px -3px rgba(255,176,32,0.8), inset 0 1px 0 rgba(255,255,255,.08);
+  box-shadow: 0 0 14px -3px rgba(248,106,56,0.8), inset 0 1px 0 rgba(255,255,255,.08);
 }
 .topbar .admin-chip .sub{ color:var(--text-faint); font-weight:400; letter-spacing:1px; font-size:8.5px; margin-left:2px; }
 
@@ -110,25 +114,25 @@ input, select, textarea{ font-family:inherit; }
   font-family:var(--font-hud); font-weight:700; font-size:15px; letter-spacing:1px; color:var(--console-icy-blue);
   display:flex; flex-direction:column; align-items:center; line-height:1.3;
   border:1px solid var(--console-border);
-  background:linear-gradient(180deg, rgba(34,211,238,0.1), rgba(10,6,20,0.3));
+  background:linear-gradient(180deg, rgba(2,148,86,0.1), rgba(10,6,20,0.3));
   padding:4px 18px; clip-path: polygon(8px 0,100% 0,100% 100%,8px 100%,0 50%);
-  box-shadow: 0 0 14px -4px rgba(34,211,238,0.7), inset 0 1px 0 rgba(255,255,255,.06);
-  text-shadow: 0 0 10px rgba(125,211,252,0.6);
+  box-shadow: 0 0 14px -4px rgba(2,148,86,0.7), inset 0 1px 0 rgba(255,255,255,.06);
+  text-shadow: 0 0 10px rgba(178,218,228,0.6);
 }
 .topbar .clock .tz{ color:var(--text-faint); font-size:9px; margin-left:4px; letter-spacing:1px; }
 .topbar .clock .date{ font-family:'Jost', sans-serif; font-size:8.5px; letter-spacing:1.5px; color:var(--text-faint); font-weight:500; }
 
-.topbar .signin{ color: #fff; font-size:11px; letter-spacing:1.5px; background:linear-gradient(135deg, var(--accent-purple), var(--console-magenta)); border:none; padding:8px 16px; font-weight:700; box-shadow:0 0 16px rgba(255,46,146,0.5); clip-path: polygon(8px 0,100% 0,100% 100%,0 100%,0 8px); }
-.topbar .signin:hover{ filter:brightness(1.15); box-shadow:0 0 22px rgba(255,46,146,0.7); }
+.topbar .signin{ color: #fff; font-size:11px; letter-spacing:1.5px; background:linear-gradient(135deg, var(--accent-purple), var(--console-magenta)); border:none; padding:8px 16px; font-weight:700; box-shadow:0 0 16px rgba(216,34,108,0.5); clip-path: polygon(8px 0,100% 0,100% 100%,0 100%,0 8px); }
+.topbar .signin:hover{ filter:brightness(1.15); box-shadow:0 0 22px rgba(216,34,108,0.7); }
 .topbar .who{ display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text-dim); }
 .topbar .who .user-chip{
   display:flex; align-items:center; gap:6px; color:#fff; font-weight:700;
-  border:1px solid var(--console-magenta); background:rgba(255,46,146,0.1); padding:5px 10px;
+  border:1px solid var(--console-magenta); background:rgba(216,34,108,0.1); padding:5px 10px;
   clip-path: polygon(6px 0,100% 0,100% 100%,0 100%,0 6px);
-  text-shadow:0 0 10px rgba(255,46,146,0.6);
+  text-shadow:0 0 10px rgba(216,34,108,0.6);
 }
 .topbar .who button{ background:rgba(255,255,255,0.02); border:1px solid var(--console-border); color:var(--text-dim); padding:6px 12px; font-size:10.5px; letter-spacing:1px; font-weight:600; clip-path: polygon(0 0,100% 0,100% 100%,6px 100%,0 calc(100% - 6px)); }
-.topbar .who button:hover{ border-color:var(--console-magenta); color:var(--console-magenta); box-shadow:0 0 10px -2px rgba(255,46,146,0.6); }
+.topbar .who button:hover{ border-color:var(--console-magenta); color:var(--console-magenta); box-shadow:0 0 10px -2px rgba(216,34,108,0.6); }
 
 .topbar .strap{ margin-left:auto; text-align:right; font-size:8px; letter-spacing:2px; line-height:1.6; color:var(--text-faint); }
 @media (max-width:760px){ .topbar .strap{ display:none; } }
@@ -146,13 +150,13 @@ main.home-main{ max-width:1560px; }
   position:relative; overflow:hidden; border-radius:10px; margin:10px 0 14px;
   border:1px solid var(--console-border);
   background: var(--console-bg);
-  box-shadow: 0 0 0 1px rgba(34,211,238,0.1), 0 0 40px -12px rgba(255,46,146,0.35), 0 20px 50px -30px rgba(124,58,237,0.9);
+  box-shadow: 0 0 0 1px rgba(2,148,86,0.1), 0 0 40px -12px rgba(216,34,108,0.35), 0 20px 50px -30px rgba(0,91,179,0.9);
 }
 .ops-hero-scene{
   position:absolute; inset:0;
   background-image:
-    radial-gradient(1100px 320px at 12% -15%, rgba(139,92,246,0.24), transparent 62%),
-    radial-gradient(800px 260px at 92% 5%, rgba(34,211,238,0.12), transparent 65%),
+    radial-gradient(1100px 320px at 12% -15%, rgba(0,91,179,0.24), transparent 62%),
+    radial-gradient(800px 260px at 92% 5%, rgba(2,148,86,0.12), transparent 65%),
     linear-gradient(180deg, rgba(10,6,20,0.2) 0%, rgba(12,7,22,0.46) 55%, rgba(8,5,16,0.78) 100%),
     var(--art, none);
   background-size: cover, cover, cover, cover;
@@ -161,7 +165,7 @@ main.home-main{ max-width:1560px; }
 }
 .ops-hero-scene .peaks{ position:absolute; left:0; right:0; bottom:0; height:66%; }
 .ops-hero-scene .peaks span{ position:absolute; bottom:0; display:block; }
-.ops-hero-scene .peaks .p1{ left:-4%; width:46%; height:82%; background:#2e2150; clip-path:polygon(0% 100%,18% 30%,34% 62%,52% 12%,70% 55%,100% 100%); opacity:.95; box-shadow: 8px 0 30px rgba(139,92,246,0.15) inset; }
+.ops-hero-scene .peaks .p1{ left:-4%; width:46%; height:82%; background:#2e2150; clip-path:polygon(0% 100%,18% 30%,34% 62%,52% 12%,70% 55%,100% 100%); opacity:.95; box-shadow: 8px 0 30px rgba(0,91,179,0.15) inset; }
 .ops-hero-scene .peaks .p1::after{ content:none; }
 .ops-hero-scene .peaks .p2{ left:28%; width:48%; height:100%; background:#211736; clip-path:polygon(0% 100%,14% 44%,30% 68%,48% 8%,66% 48%,86% 20%,100% 100%); }
 .ops-hero-scene .peaks .p3{ left:56%; width:50%; height:74%; background:#372a5c; clip-path:polygon(0% 100%,20% 50%,40% 20%,58% 58%,78% 24%,100% 100%); opacity:.9; }
@@ -172,7 +176,7 @@ main.home-main{ max-width:1560px; }
     radial-gradient(46px 20px at 66% 38%, rgba(234,246,255,0.45), transparent 70%);
 }
 .ops-hero-scene .fortress{ position:absolute; left:36%; bottom:5%; width:34%; height:40%; }
-.ops-hero-scene .fortress i{ position:absolute; bottom:0; display:block; background:#0c0818; border-top:2px solid rgba(255,176,32,0.28); box-shadow:0 0 18px rgba(0,0,0,0.6); }
+.ops-hero-scene .fortress i{ position:absolute; bottom:0; display:block; background:#0c0818; border-top:2px solid rgba(248,106,56,0.28); box-shadow:0 0 18px rgba(0,0,0,0.6); }
 .ops-hero-scene .fortress .t1{ left:4%; width:13%; height:66%; }
 .ops-hero-scene .fortress .t2{ left:20%; width:17%; height:100%; }
 .ops-hero-scene .fortress .t3{ left:42%; width:13%; height:56%; }
@@ -180,15 +184,15 @@ main.home-main{ max-width:1560px; }
 .ops-hero-scene .fortress .t5{ left:84%; width:11%; height:48%; }
 .ops-hero-scene .fortress .banner{ position:absolute; top:-22px; left:24%; width:2px; height:24px; background:var(--accent-purple); }
 .ops-hero-scene .fortress .banner::after{ content:""; position:absolute; top:0; left:2px; width:14px; height:9px; background:var(--console-magenta); clip-path:polygon(0 0,100% 20%,0 100%); }
-.ops-hero-scene .fortress .win{ position:absolute; width:3px; height:4px; background:var(--accent-amber); box-shadow:0 0 6px 1px rgba(255,176,32,0.85); }
+.ops-hero-scene .fortress .win{ position:absolute; width:3px; height:4px; background:var(--accent-amber); box-shadow:0 0 6px 1px rgba(248,106,56,0.85); }
 .ops-hero-scene .fortress .w1{ bottom:18%; left:22%; }
 .ops-hero-scene .fortress .w2{ bottom:34%; left:24%; }
 .ops-hero-scene .fortress .w3{ bottom:22%; left:63%; }
 .ops-hero-scene .fortress .w4{ bottom:40%; left:66%; }
-.ops-hero-scene .fortress .glow{ position:absolute; bottom:6%; left:20%; width:8px; height:8px; border-radius:50%; background:var(--accent-amber); box-shadow:0 0 14px 4px rgba(255,176,32,0.9); }
-.ops-hero-scene .fortress .glow2{ position:absolute; bottom:12%; left:58%; width:6px; height:6px; border-radius:50%; background:var(--accent-amber); box-shadow:0 0 12px 3px rgba(255,176,32,0.85); }
+.ops-hero-scene .fortress .glow{ position:absolute; bottom:6%; left:20%; width:8px; height:8px; border-radius:50%; background:var(--accent-amber); box-shadow:0 0 14px 4px rgba(248,106,56,0.9); }
+.ops-hero-scene .fortress .glow2{ position:absolute; bottom:12%; left:58%; width:6px; height:6px; border-radius:50%; background:var(--accent-amber); box-shadow:0 0 12px 3px rgba(248,106,56,0.85); }
 .ops-hero-scene .aurora{ position:absolute; inset:0; opacity:.35; mix-blend-mode:screen; pointer-events:none;
-  background: linear-gradient(100deg, transparent 20%, rgba(34,211,238,0.25) 42%, rgba(255,46,146,0.2) 55%, transparent 75%);
+  background: linear-gradient(100deg, transparent 20%, rgba(2,148,86,0.25) 42%, rgba(216,34,108,0.2) 55%, transparent 75%);
 }
 .ops-hero-scene .snowfall{ position:absolute; inset:0; opacity:.8; mix-blend-mode:screen;
   background-image:
@@ -213,7 +217,7 @@ main.home-main{ max-width:1560px; }
 .ops-hero-eyebrow{ color:var(--console-icy-blue); font-size:11px; letter-spacing:3px; font-weight:600; }
 .ops-hero-title{
   font-family:var(--font-hud); font-weight:900; font-size:clamp(28px,4vw,42px); letter-spacing:2px; margin:2px 0 6px; color:#fff;
-  text-shadow: 0 0 22px rgba(255,46,146,0.4), 0 0 40px rgba(124,58,237,0.35);
+  text-shadow: 0 0 22px rgba(216,34,108,0.4), 0 0 40px rgba(0,91,179,0.35);
 }
 .ops-hero-desc{ color:var(--text-dim); font-size:13px; margin:0; max-width:480px; }
 .ops-hero-strap{ margin-left:auto; text-align:right; font-size:10.5px; color:var(--text-faint); letter-spacing:.5px; font-style:italic; max-width:190px; }
@@ -484,15 +488,15 @@ textarea.feedback-input{ width:100%; background:var(--panel-2); border:1px solid
 .schedule-panel{
   position:relative; overflow:hidden; border-radius:var(--radius); margin:14px 0;
   border:1.5px solid var(--console-border); background:var(--console-bg);
-  box-shadow:0 0 0 1px rgba(124,58,237,0.15), 0 0 26px -8px rgba(124,58,237,0.7), inset 0 1px 0 rgba(255,255,255,.05);
+  box-shadow:0 0 0 1px rgba(0,91,179,0.15), 0 0 26px -8px rgba(0,91,179,0.7), inset 0 1px 0 rgba(255,255,255,.05);
   backdrop-filter: blur(1px);
 }
 .schedule-panel .scene{
   position:absolute; inset:0; opacity:.65;
   background:
-    radial-gradient(500px 160px at 8% 0%, rgba(139,92,246,0.3), transparent 60%),
-    radial-gradient(500px 160px at 92% 100%, rgba(34,211,238,0.18), transparent 60%),
-    linear-gradient(0deg, transparent 0%, transparent 78%, rgba(139,92,246,0.06) 100%);
+    radial-gradient(500px 160px at 8% 0%, rgba(0,91,179,0.3), transparent 60%),
+    radial-gradient(500px 160px at 92% 100%, rgba(2,148,86,0.18), transparent 60%),
+    linear-gradient(0deg, transparent 0%, transparent 78%, rgba(0,91,179,0.06) 100%);
 }
 /* Very subtle, very dark snowy fortress backdrop behind the whole panel —
    deliberately low-contrast so it reads as atmosphere, not artwork, and
@@ -590,6 +594,6 @@ textarea.feedback-input{ width:100%; background:var(--panel-2); border:1px solid
 .lane-grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
 @media (max-width:760px){ .lane-grid{ grid-template-columns:1fr; } }
 .lane-drop{ min-height:40px; border-radius:4px; transition:background .12s, outline .12s; }
-.lane-drop.dragover{ background:rgba(124,58,237,0.12); outline:2px dashed var(--accent-purple); outline-offset:-2px; }
+.lane-drop.dragover{ background:rgba(0,91,179,0.12); outline:2px dashed var(--accent-purple); outline-offset:-2px; }
 .rank-item[draggable="true"]{ cursor:grab; }
 .rank-item.dragging{ opacity:.4; }

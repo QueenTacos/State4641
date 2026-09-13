@@ -1085,7 +1085,7 @@ function renderSvSWizard(el) {
   el.innerHTML = `
     ${
       svsEditingMemberId
-        ? `<div class="panel" style="background:rgba(255,176,32,.1);border-color:var(--accent-amber);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+        ? `<div class="panel" style="background:rgba(248,106,56,.1);border-color:var(--accent-amber);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
             <span style="font-size:12px;color:var(--accent-amber);">✎ Editing <strong>${escapeHtml(user.name)}</strong>'s bag as admin</span>
             <button class="btn small" id="exitEdit">Exit editing</button>
           </div>`
@@ -1248,7 +1248,7 @@ function dayStatusHtml(statusKey, values) {
     ? `${suggestion.label} (${fmtNum(suggestion.mins)} mins of General speedups suggested to use)`
     : "";
   const toneColor = tone === "ok" ? "var(--accent-green)" : tone === "warn" ? "var(--accent-amber)" : "var(--accent-red)";
-  const toneBg = tone === "ok" ? "rgba(62,207,142,.1)" : tone === "warn" ? "rgba(255,176,32,.1)" : "rgba(255,84,112,.1)";
+  const toneBg = tone === "ok" ? "rgba(2,148,86,.1)" : tone === "warn" ? "rgba(248,106,56,.1)" : "rgba(255,84,112,.1)";
   return `
     <div class="rate" style="margin-top:6px;padding:8px 10px;border-radius:6px;background:${toneBg};border:1px solid ${toneColor};color:${toneColor};">
       ${primary}
@@ -1297,7 +1297,7 @@ function renderWizardBackpack(el, wrap) {
             return `
             <div class="field" ${
               highlight
-                ? `style="grid-column:1 / -1;background:rgba(255,176,32,.06);border:1px solid var(--accent-amber);border-radius:8px;padding:12px 14px;"`
+                ? `style="grid-column:1 / -1;background:rgba(248,106,56,.06);border:1px solid var(--accent-amber);border-radius:8px;padding:12px 14px;"`
                 : ""
             }>
               <label>${f.label}${f.standout ? ` <span style="color:var(--accent-amber);font-size:10px;letter-spacing:1px;">★ REQUIRED</span>` : f.wildcard ? ` <span style="color:var(--accent-amber);font-size:10px;letter-spacing:1px;">★ WILDCARD</span>` : ""}<span class="rate">${f.rateNote || ""}</span></label>
@@ -1405,7 +1405,7 @@ function renderWizardTimeSlots(el) {
     </div>
     ${
       blockedDays.length
-        ? `<div class="panel" style="background:rgba(255,176,32,.1);border-color:var(--accent-amber);padding:10px 12px;margin-top:12px;font-size:11.5px;color:var(--accent-amber);">
+        ? `<div class="panel" style="background:rgba(248,106,56,.1);border-color:var(--accent-amber);padding:10px 12px;margin-top:12px;font-size:11.5px;color:var(--accent-amber);">
             You won't be scheduled for: ${blockedDays.map((d) => `<strong>${d}</strong> (${blockedReason(d)})`).join(", ")}${mode === "all" ? " — those taps apply to your other days only" : ""}. Go back to BACKPACK and add the matching speedup minutes (or General wildcard minutes) if you have them.
           </div>`
         : ""
@@ -1493,7 +1493,7 @@ function renderWizardSubmit(el, wrap) {
     </div>
     <div class="section-title" style="margin-top:16px;">NOTES (OPTIONAL)</div>
     <textarea class="feedback-input" id="wizNotes" placeholder="Anything the scheduler should know...">${escapeHtml(svsDraft.notes || "")}</textarea>
-    <div id="wizScheduleWarning" style="display:none;margin-top:14px;padding:10px 12px;border-radius:6px;background:rgba(255,176,32,.1);border:1px solid var(--accent-amber);font-size:11.5px;color:var(--accent-amber);"></div>
+    <div id="wizScheduleWarning" style="display:none;margin-top:14px;padding:10px 12px;border-radius:6px;background:rgba(248,106,56,.1);border:1px solid var(--accent-amber);font-size:11.5px;color:var(--accent-amber);"></div>
     <div style="display:flex;gap:10px;margin-top:16px;">
       <button class="btn" id="wizBack">← BACK</button>
       <button class="btn primary" id="wizSubmit" style="flex:1;">${editing ? `SAVE ${escapeHtml(user.name).toUpperCase()}'S BAG` : "SUBMIT BAG"}</button>
@@ -1736,7 +1736,7 @@ function renderSvsSignupForm(el) {
   el.innerHTML = `
     ${
       svsSignupEditingMemberId
-        ? `<div class="panel" style="background:rgba(255,176,32,.1);border-color:var(--accent-amber);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+        ? `<div class="panel" style="background:rgba(248,106,56,.1);border-color:var(--accent-amber);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
             <span style="font-size:12px;color:var(--accent-amber);">✎ Editing <strong>${escapeHtml(user.name)}</strong>'s SVS Battle Sign Up as admin</span>
             <button class="btn small" id="exitSignupEdit">Exit editing</button>
           </div>`
@@ -1971,7 +1971,7 @@ function renderSvSSchedule(el) {
         <span>${filled} / ${slots.length} SLOTS FILLED · ${fmtNum(scheduledPoints)} SCHEDULED PTS · PROVISIONAL</span>
         <span style="display:flex;align-items:center;gap:8px;">
           <span style="font-size:11px;letter-spacing:.04em;padding:3px 8px;border-radius:20px;background:${
-            isPublished ? "rgba(62,207,142,.15)" : "rgba(255,176,32,.15)"
+            isPublished ? "rgba(2,148,86,.15)" : "rgba(248,106,56,.15)"
           };color:${isPublished ? "var(--accent-green)" : "var(--accent-amber)"};">
             ${isPublished ? "● PUBLISHED" : "○ DRAFT"}
           </span>
@@ -2687,7 +2687,7 @@ function renderAdmin(el) {
     <h1 class="page-title" style="color:var(--accent-gold)">admin</h1>
     ${
       officerScoped
-        ? `<div class="panel" style="background:rgba(255,176,32,.1);border-color:var(--accent-amber);">
+        ? `<div class="panel" style="background:rgba(248,106,56,.1);border-color:var(--accent-amber);">
             <span style="font-size:12px;color:var(--accent-amber);">✎ ${t("admin.officerNotice")}</span>
           </div>`
         : ""
