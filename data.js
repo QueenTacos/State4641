@@ -401,14 +401,11 @@ const PLANNED_TOOLS = [
 // using localStorage exactly as it always has, with zero setup required.
 // ---------------------------------------------------------------------------
 const SUPABASE_CONFIG = {
-  // Intentionally blank in this clone — this is the State 4641 codebase,
-  // and it must NEVER point at State 3929's Supabase project. Leave both
-  // blank to run localStorage-only (zero setup), or create a brand-new,
-  // separate Supabase project for State 4641 and paste ITS OWN Project URL
-  // + anon public key in here — see SUPABASE_SETUP.md in this project for
-  // the full walkthrough (schema, RLS, and exactly what to paste where).
-  url: "", // e.g. "https://xxxxxxxxxxxx.supabase.co" — Project Settings -> API (State 4641's OWN project, not 3929's)
-  anonKey: "", // the "anon public" key on that same page — safe to publish, it's gated by Row Level Security, not secrecy
+  // State 4641's OWN, separate Supabase project — not 3929's. See
+  // SUPABASE_SETUP.md in this project for the schema this project needs
+  // (run once, in this project's SQL Editor) and the full walkthrough.
+  url: "https://xnfmwutvchaeazejlzzq.supabase.co", // Project Settings -> API -> Project URL
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhuZm13dXR2Y2hhZWF6ZWpsenpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMTE4NjcsImV4cCI6MjEwNDg4Nzg2N30.sf3BLgrO_eCKPzAHKi86DZMXB-aYTRFcah3ZEDljE4Q", // the "anon public" key on that same page — safe to publish, it's gated by Row Level Security, not secrecy
 };
 
 const supabaseClient =
