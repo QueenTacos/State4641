@@ -42,6 +42,23 @@ const PORTRAITS={
   'gwen':'/portraits/gwen.jpg','hank':'/portraits/hank.png',
   'hector':'/portraits/hector.jpg','hendrik':'/portraits/hendrik.jpg',
   'hervor':'/portraits/hervor.jpg',
+  'smith':'/portraits/smith.png','sergey':'/portraits/sergey.png',
+  'patrick':'/portraits/patrick.png','lumak':'/portraits/lumak.png',
+  'ling_xue':'/portraits/ling_xue.jpg','jasser':'/portraits/jasser.jpg',
+  'seo_yoon':'/portraits/seo_yoon.jpg','natalia':'/portraits/natalia.png',
+  'jeronimo':'/portraits/jeronimo.png','molly':'/portraits/molly.png',
+  'zinman':'/portraits/zinman.png','philly':'/portraits/philly.png',
+  'logan':'/portraits/logan.png','mia':'/portraits/mia.png',
+  'reina':'/portraits/reina.jpg','lynn':'/portraits/lynn.jpg',
+  'norah':'/portraits/norah.jpg','wu_ming':'/portraits/wu_ming.jpg',
+  'renee':'/portraits/renee.jpg','wayne':'/portraits/wayne.jpg',
+  'sonya':'/portraits/sonya.jpg','magnus':'/portraits/magnus.jpg',
+  'xura':'/portraits/xura.jpg','lloyd':'/portraits/lloyd.jpg',
+  'rufus':'/portraits/rufus.jpg','karol':'/portraits/karol.jpg',
+  'ligeia':'/portraits/ligeia.jpg','vulcanus':'/portraits/vulcanus.jpg',
+  'viveca':'/portraits/viveca.png','seigel':'/portraits/seigel.png',
+  'ursar':'/portraits/ursar.png',
+  'jessie':'/portraits/jessie.png',
 };
 const getPortrait=id=>PORTRAITS[id]||null;
 
