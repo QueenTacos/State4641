@@ -19,6 +19,17 @@
        browser (no server involved). Harmless to load if that feature is
        never used. -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <!-- Used only by the embedded Bear Squad Calculator ("/bears" route —
+       see renderBearCalculator in app.js). React itself has no build step
+       here, so Babel standalone transforms bear-calculator.js's JSX to
+       plain JS right in the browser at load time. Harmless to load if
+       that page is never opened. -->
+  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
+  <script type="text/babel" data-presets="react" src="bear-calculator.js"></script>
+
   <script src="data.js"></script>
   <script src="i18n.js"></script>
   <script src="card-art.js"></script>

@@ -20,6 +20,7 @@ const ROUTES = {
   "/admin": renderAdmin,
   "/championship": renderChampionship,
   "/svs-signup": renderSvsSignupPage,
+  "/bears": renderBearCalculator,
 };
 // wire up stub routes for planned tools
 // Named `tool`, not `t` — `t` is the global translation lookup (see
@@ -408,11 +409,17 @@ function renderHome(el) {
         meta: t("home.svsSignupMeta").toUpperCase(),
         num: "05", iconName: "shield", tag: t("home.tagRegistration").toUpperCase(), scene: "hero", bright: true,
       })}
+      ${opCard({
+        href: "#/bears", color: "var(--accent-green)", title: "bear_calculator",
+        desc: "Bear Trap hit planner — squad comp, gear thresholds, hit timing.",
+        meta: "ROSTER, TROOPS & AUTO SQUAD BUILDER",
+        num: "06", iconName: "paw", tag: "ANALYTICS", scene: "bear_calculator", bright: true,
+      })}
       ${PLANNED_TOOLS.map((tool, i) =>
         opCard({
           href: "#/" + tool.id, color: tool.color, title: tool.title,
           desc: tool.desc, meta: t("home.comingSoon").toUpperCase(), dim: true,
-          num: String(i + 6).padStart(2, "0"), iconName: tool.icon || "doc", tag: tool.tag, scene: tool.scene || "bear_calculator",
+          num: String(i + 7).padStart(2, "0"), iconName: tool.icon || "doc", tag: tool.tag, scene: tool.scene || "bear_calculator",
         })
       ).join("")}
     </div>
@@ -3427,6 +3434,25 @@ function championshipLanePanelHtml(key, isOverflow, w, total) {
       </div>
     </div>
   `;
+}
+
+let bearCalcRoot = null;
+function renderBearCalculator(el) {
+  el.innerHTML = `
+    <div class="eyebrow">// ANALYTICS</div>
+    <h1 class="page-title" style="color:var(--accent-green)">bear_calculator</h1>
+    <div class="panel" style="padding:0;overflow:hidden;">
+      <div id="bearCalcMount"></div>
+    </div>
+  `;
+  const mount = el.querySelector("#bearCalcMount");
+  if (typeof React === "undefined" || typeof ReactDOM === "undefined" || typeof BearSquadCalculatorApp === "undefined") {
+    mount.innerHTML = `<div class="empty">Loading Bear Squad Calculator…</div>`;
+    setTimeout(() => { if (currentPath() === "/bears") renderBearCalculator(el); }, 400);
+    return;
+  }
+  bearCalcRoot = ReactDOM.createRoot(mount);
+  bearCalcRoot.render(React.createElement(BearSquadCalculatorApp));
 }
 
 function renderChampionship(el) {

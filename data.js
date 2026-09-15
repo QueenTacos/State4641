@@ -378,19 +378,11 @@ const SEED_FEEDBACK = [
 
 // Tools that don't exist yet — shown on the home page as "coming soon" so
 // there's a place for them once they're built. Add more entries here as
-// you build them out. Alliance Championship used to be one of these — it's
-// a real, built page now (see renderChampionship in app.js), so it's wired
-// up as its own home-page card + route instead of living in this list.
-const PLANNED_TOOLS = [
-  {
-    id: "bears",
-    title: "bear_calculator",
-    desc: "Bear Trap hit planner — squad comp, gear thresholds, hit timing.",
-    color: "var(--accent-teal)",
-    icon: "paw",
-    tag: "ANALYTICS",
-  },
-];
+// you build them out. Alliance Championship and Bear Squad Calculator used
+// to be two of these — they're real, built pages now (see renderChampionship
+// and renderBearCalculator in app.js), so each is wired up as its own
+// home-page card + route instead of living in this list.
+const PLANNED_TOOLS = [];
 
 // ---------------------------------------------------------------------------
 // Supabase (optional shared backend) — fill BOTH of these in (after

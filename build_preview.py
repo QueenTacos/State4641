@@ -32,6 +32,8 @@ with open("card-art.js") as f:
     card_art_js = f.read()
 with open("app.js") as f:
     app_js = f.read()
+with open("bear-calculator.js") as f:
+    bear_calc_js = f.read()
 
 out = f"""<title>{TITLE}</title>
 {font_link}
@@ -39,6 +41,18 @@ out = f"""<title>{TITLE}</title>
 {css}
 </style>
 <div id="shell"></div>
+
+<!-- Used only by the embedded Bear Squad Calculator ("/bears" route). React
+     itself has no build step here, so Babel standalone transforms
+     bear-calculator.js's JSX to plain JS right in the browser at load
+     time. Harmless to load if that page is never opened. -->
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
+<script type="text/babel" data-presets="react">
+{bear_calc_js}
+</script>
+
 <script>
 {data_js}
 </script>
