@@ -21,6 +21,7 @@ const ROUTES = {
   "/championship": renderChampionship,
   "/svs-signup": renderSvsSignupPage,
   "/bears": renderBearCalculator,
+  "/calendar": renderGameCalendar,
 };
 // wire up stub routes for planned tools
 // Named `tool`, not `t` — `t` is the global translation lookup (see
@@ -415,11 +416,17 @@ function renderHome(el) {
         meta: "ROSTER, TROOPS & AUTO SQUAD BUILDER",
         num: "06", iconName: "paw", tag: "ANALYTICS", scene: "bear_calculator", bright: true,
       })}
+      ${opCard({
+        href: "#/calendar", color: "var(--accent-red)", title: "game_calendar",
+        desc: "SVS, Bear Trap, Castle Battle and every other recurring event, on one shared calendar.",
+        meta: `${gameCalendarUpcomingCount()} UPCOMING EVENT${gameCalendarUpcomingCount() === 1 ? "" : "S"}`,
+        num: "07", iconName: "calendar", tag: "SCHEDULE", scene: "championship", bright: true,
+      })}
       ${PLANNED_TOOLS.map((tool, i) =>
         opCard({
           href: "#/" + tool.id, color: tool.color, title: tool.title,
           desc: tool.desc, meta: t("home.comingSoon").toUpperCase(), dim: true,
-          num: String(i + 7).padStart(2, "0"), iconName: tool.icon || "doc", tag: tool.tag, scene: tool.scene || "bear_calculator",
+          num: String(i + 8).padStart(2, "0"), iconName: tool.icon || "doc", tag: tool.tag, scene: tool.scene || "bear_calculator",
         })
       ).join("")}
     </div>
@@ -3453,6 +3460,412 @@ function renderBearCalculator(el) {
   }
   bearCalcRoot = ReactDOM.createRoot(mount);
   bearCalcRoot.render(React.createElement(BearSquadCalculatorApp));
+}
+
+// ---------------------------------------------------------------------------
+// Game Calendar — admin/officer-managed schedule of recurring Whiteout
+// Survival systems (see EVENT_TYPES/EVENT_SCOPES/EVENT_COLOR_PRESETS +
+// SEED_GAME_EVENTS in data.js). Regular members get a read-only month view
+// + upcoming list; isAdmin(user) also gets Add/Edit/Delete. Editing a
+// recurring event edits the whole series (there's no per-occurrence
+// override) — keeps the data model simple, and matches how these systems
+// actually work in-game (the whole schedule shifts together, not one
+// instance of it).
+//
+// Multi-day events render as ONE continuous colored bar spanning every day
+// they cover, not a separate dot per day — see the week-row segmenting +
+// lane-stacking below. Each event still carries a single stored
+// startDate/endDate; a bar that crosses into the next calendar row is
+// re-clipped to that row (so it still looks continuous) but stays one
+// event the whole way — no duplicate records are ever created for it.
+// ---------------------------------------------------------------------------
+let calendarViewDate = (() => { const d = new Date(); d.setDate(1); return d; })();
+let calendarSelectedDate = null; // "YYYY-MM-DD" | null — null = show upcoming list instead of one day
+
+const CAL_WEEKDAY_LABELS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+
+function fmtEventDateLabel(dateStr) {
+  const d = parseEventDate(dateStr);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function fmtEventRangeLabel(startStr, endStr) {
+  return startStr === endStr
+    ? fmtEventDateLabel(startStr)
+    : `${fmtEventDateLabel(startStr)} – ${fmtEventDateLabel(endStr)}`;
+}
+
+function renderGameCalendar(el) {
+  const user = Store.currentUser;
+  const admin = isAdmin(user);
+  const year = calendarViewDate.getFullYear();
+  const month = calendarViewDate.getMonth();
+
+  // Build a 6x7 grid of local dates covering the visible month (plus the
+  // lead-in/lead-out days from the adjacent months needed to fill the
+  // first and last week), grouped into 6 week-rows for bar segmenting.
+  const firstOfMonth = new Date(year, month, 1);
+  const gridStart = new Date(firstOfMonth);
+  gridStart.setDate(gridStart.getDate() - firstOfMonth.getDay());
+  const cells = Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    return d;
+  });
+  const gridEnd = cells[cells.length - 1];
+  const weeks = Array.from({ length: 6 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
+
+  const occurrences = gameEventOccurrencesInRange(gridStart, gridEnd);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = fmtEventDate(today);
+
+  // Day-click list — which occurrences touch a given date, expanded from
+  // each occurrence's [occurrenceStart, occurrenceEnd] span.
+  const byDate = {};
+  occurrences.forEach((occ) => {
+    const s = parseEventDate(occ.occurrenceStart), e = parseEventDate(occ.occurrenceEnd);
+    for (const d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+      if (d >= gridStart && d <= gridEnd) (byDate[fmtEventDate(d)] = byDate[fmtEventDate(d)] || []).push(occ);
+    }
+  });
+
+  // Right-hand list: either the selected day's occurrences, or (no
+  // selection) the next 90 days of upcoming occurrences — one entry per
+  // EVENT, never one per day it spans.
+  let listTitle, listOccurrences;
+  if (calendarSelectedDate) {
+    listTitle = fmtEventDateLabel(calendarSelectedDate).toUpperCase();
+    listOccurrences = byDate[calendarSelectedDate] || [];
+  } else {
+    listTitle = "UPCOMING EVENTS";
+    const upcomingEnd = new Date(today);
+    upcomingEnd.setDate(upcomingEnd.getDate() + 90);
+    listOccurrences = gameEventOccurrencesInRange(today, upcomingEnd);
+  }
+
+  // --- Week-row bar segmenting + lane stacking ----------------------------
+  // For each visible week, clip every occurrence that touches it down to
+  // that week's [start,end] span, then greedily assign each resulting
+  // segment to the first "lane" (stacked row) whose last-used column is
+  // before this segment's start column — the same interval-stacking
+  // approach a full calendar UI uses so overlapping events never collide.
+  const weekRowsHtml = weeks
+    .map((week) => {
+      const weekStart = week[0], weekEnd = week[6];
+      const segs = [];
+      occurrences.forEach((occ) => {
+        const occStart = parseEventDate(occ.occurrenceStart), occEnd = parseEventDate(occ.occurrenceEnd);
+        if (occEnd < weekStart || occStart > weekEnd) return;
+        const segStart = occStart < weekStart ? weekStart : occStart;
+        const segEnd = occEnd > weekEnd ? weekEnd : occEnd;
+        segs.push({
+          occ,
+          colStart: Math.round((segStart - weekStart) / 86400000),
+          colEnd: Math.round((segEnd - weekStart) / 86400000),
+          continuesBefore: occStart < weekStart,
+          continuesAfter: occEnd > weekEnd,
+        });
+      });
+      segs.sort((a, b) => a.colStart - b.colStart || (b.colEnd - b.colStart) - (a.colEnd - a.colStart));
+      const laneLastCol = [];
+      segs.forEach((s) => {
+        let lane = laneLastCol.findIndex((last) => last < s.colStart);
+        if (lane === -1) { lane = laneLastCol.length; laneLastCol.push(-1); }
+        s.lane = lane;
+        laneLastCol[lane] = s.colEnd;
+      });
+      const laneCount = Math.max(1, laneLastCol.length);
+
+      const dayCellsHtml = week
+        .map((d, i) => {
+          const dStr = fmtEventDate(d);
+          const cls = [
+            "cal-day-bg",
+            d.getMonth() === month ? "" : "other-month",
+            dStr === todayStr ? "today" : "",
+            dStr === calendarSelectedDate ? "selected" : "",
+          ].filter(Boolean).join(" ");
+          return `<div class="${cls}" data-caldate="${dStr}" style="grid-column:${i + 1};grid-row:1 / -1;"><span class="cal-daynum">${d.getDate()}</span></div>`;
+        })
+        .join("");
+
+      const barsHtml = segs
+        .map((s) => {
+          const o = s.occ;
+          const title = escapeHtml(o.title);
+          const roundL = !s.continuesBefore, roundR = !s.continuesAfter;
+          const radius = `${roundL ? "5px" : "0"} ${roundR ? "5px" : "0"} ${roundR ? "5px" : "0"} ${roundL ? "5px" : "0"}`;
+          return `
+            <div class="cal-event-bar" data-calbar="${o.id}" data-baroccstart="${o.occurrenceStart}"
+                 style="grid-column:${s.colStart + 1} / ${s.colEnd + 2};grid-row:${s.lane + 2};background:${o.color};color:${readableTextColor(o.color)};border-radius:${radius};"
+                 title="${title}">
+              ${!roundL ? `<span class="cal-bar-cont">‹</span>` : ""}<span class="cal-bar-label">${title}</span>${!roundR ? `<span class="cal-bar-cont">›</span>` : ""}
+            </div>`;
+        })
+        .join("");
+
+      return `<div class="cal-week-row" style="grid-template-rows:22px repeat(${laneCount}, 20px);">${dayCellsHtml}${barsHtml}</div>`;
+    })
+    .join("");
+
+  el.innerHTML = `
+    <div class="eyebrow">// SCHEDULE</div>
+    <h1 class="page-title" style="color:var(--accent-red)">game_calendar</h1>
+
+    <div class="panel">
+      <div class="cal-header">
+        <div class="cal-month-nav">
+          <button id="calPrev">‹</button>
+          <span class="cal-month-label">${firstOfMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" }).toUpperCase()}</span>
+          <button id="calNext">›</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="btn small" id="calToday">TODAY</button>
+          ${admin ? `<button class="btn primary small" id="calAdd">+ ADD EVENT</button>` : ""}
+        </div>
+      </div>
+
+      <div class="cal-weekday-row">
+        ${CAL_WEEKDAY_LABELS.map((l) => `<div class="cal-daylabel">${l}</div>`).join("")}
+      </div>
+      <div style="margin-bottom:10px;">${weekRowsHtml}</div>
+
+      <div class="cal-legend">
+        <span class="cal-legend-note">Colors are set per event — scope:</span>
+        ${EVENT_SCOPES.map((s) => `<span class="cal-scope-chip scope-${s.id}">${s.label.replace(" Event", "").toUpperCase()}</span>`).join("")}
+      </div>
+    </div>
+
+    <div class="db-heading">
+      <span class="stat-icon">${icon("calendar")}</span>
+      <div>
+        <div class="title">${listTitle}</div>
+        <div class="sub">${calendarSelectedDate ? `<a href="#" id="calClearSelection" style="color:var(--accent-red);">← back to upcoming</a>` : "Next 90 days"}</div>
+      </div>
+    </div>
+    <div>
+      ${
+        listOccurrences.length
+          ? listOccurrences
+              .map((o) => {
+                const scopeLabel = eventScopeInfo(o.scope).label.replace(" Event", "").toUpperCase();
+                return `
+                <div class="cal-event-row" style="border-left-color:${o.color};">
+                  <div class="cal-event-date">${fmtEventRangeLabel(o.occurrenceStart, o.occurrenceEnd)}${o.time ? `<br/>${escapeHtml(o.time)}` : ""}</div>
+                  <div class="cal-event-body">
+                    <div class="cal-event-title">
+                      <span class="cal-dot" style="background:${o.color};"></span>${escapeHtml(o.title)}
+                      <span class="cal-scope-badge scope-${o.scope}">${scopeLabel}</span>
+                      ${o.repeatRule !== "NONE" ? `<span class="cal-recurring-badge">${o.repeatRule}</span>` : ""}
+                    </div>
+                    ${o.notes ? `<div class="cal-event-notes">${escapeHtml(o.notes)}</div>` : ""}
+                  </div>
+                  ${
+                    admin
+                      ? `<div class="cal-event-actions">
+                          <button data-caledit="${o.id}">EDIT</button>
+                          <button data-caldelete="${o.id}">DELETE</button>
+                        </div>`
+                      : ""
+                  }
+                </div>`;
+              })
+              .join("")
+          : `<div class="empty">${calendarSelectedDate ? "No events on this day." : "No upcoming events in the next 90 days."}</div>`
+      }
+    </div>
+  `;
+
+  el.querySelector("#calPrev").addEventListener("click", () => {
+    calendarViewDate = new Date(year, month - 1, 1);
+    renderGameCalendar(el);
+  });
+  el.querySelector("#calNext").addEventListener("click", () => {
+    calendarViewDate = new Date(year, month + 1, 1);
+    renderGameCalendar(el);
+  });
+  el.querySelector("#calToday").addEventListener("click", () => {
+    calendarViewDate = (() => { const d = new Date(); d.setDate(1); return d; })();
+    calendarSelectedDate = todayStr;
+    renderGameCalendar(el);
+  });
+  el.querySelector("#calAdd")?.addEventListener("click", () => openEventModal(el, null, calendarSelectedDate || todayStr));
+  el.querySelector("#calClearSelection")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    calendarSelectedDate = null;
+    renderGameCalendar(el);
+  });
+  el.querySelectorAll("[data-caldate]").forEach((cell) =>
+    cell.addEventListener("click", () => {
+      const d = cell.dataset.caldate;
+      calendarSelectedDate = calendarSelectedDate === d ? null : d;
+      renderGameCalendar(el);
+    })
+  );
+  el.querySelectorAll("[data-calbar]").forEach((bar) =>
+    bar.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (admin) {
+        const raw = Store.gameEvents.find((x) => x.id === bar.dataset.calbar);
+        if (raw) openEventModal(el, raw, raw.startDate || raw.date);
+      } else {
+        calendarSelectedDate = bar.dataset.baroccstart;
+        renderGameCalendar(el);
+      }
+    })
+  );
+  el.querySelectorAll("[data-caledit]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const raw = Store.gameEvents.find((x) => x.id === b.dataset.caledit);
+      if (raw) openEventModal(el, raw, raw.startDate || raw.date);
+    })
+  );
+  el.querySelectorAll("[data-caldelete]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const events = Store.gameEvents;
+      const raw = events.find((x) => x.id === b.dataset.caldelete);
+      if (!raw) return;
+      const ev = normalizeEvent(raw);
+      if (!confirm(`Delete "${ev.title}"${ev.repeatRule !== "NONE" ? " and its whole recurring series" : ""}? This can't be undone.`)) return;
+      Store.gameEvents = events.filter((x) => x.id !== ev.id);
+      renderGameCalendar(el);
+    })
+  );
+}
+
+// Add/Edit Event modal — `existingRaw` is null for a new event, or the
+// stored (possibly older-shape) event record to edit in place, normalized
+// here before it ever touches the form. `presetDate` pre-fills Start/End
+// (the day the admin clicked, or today).
+function openEventModal(pageEl, existingRaw, presetDate) {
+  const existing = existingRaw ? normalizeEvent(existingRaw) : null;
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  const typeId = existing?.eventType || EVENT_TYPES[0].id;
+  const scope = existing?.scope || "ALLIANCE";
+  let selectedColor = existing?.color || eventTypeInfo(typeId).defaultColor || DEFAULT_EVENT_COLOR;
+
+  overlay.innerHTML = `
+    <div class="modal">
+      <button class="close">&times;</button>
+      <h3>${existing ? "Edit Event" : "Add Event"}</h3>
+      <div class="field" style="margin-top:10px;">
+        <label>EVENT TITLE</label>
+        <input id="evTitle" value="${existing?.title ? escapeHtml(existing.title) : ""}" placeholder="e.g. Alliance Mobilization Week" />
+      </div>
+      <div class="field">
+        <label>EVENT TYPE</label>
+        <select id="evType">
+          ${EVENT_TYPES.map((et) => `<option value="${et.id}" ${et.id === typeId ? "selected" : ""}>${et.label}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label>EVENT SCOPE</label>
+        <div class="cal-scope-radios">
+          ${EVENT_SCOPES.map(
+            (s) => `<label class="cal-radio"><input type="radio" name="evScope" value="${s.id}" ${s.id === scope ? "checked" : ""} />${s.label}</label>`
+          ).join("")}
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>START DATE</label>
+          <input id="evStartDate" type="date" value="${existing?.startDate || presetDate || ""}" />
+        </div>
+        <div class="field">
+          <label>END DATE</label>
+          <input id="evEndDate" type="date" value="${existing?.endDate || existing?.startDate || presetDate || ""}" />
+        </div>
+      </div>
+      <div class="field">
+        <label>TIME (OPTIONAL, SERVER/UTC)</label>
+        <input id="evTime" type="time" value="${existing?.time || ""}" />
+      </div>
+      <div class="field">
+        <label>EVENT COLOR</label>
+        <div class="cal-color-row">
+          ${EVENT_COLOR_PRESETS.map(
+            (c) =>
+              `<button type="button" class="cal-color-swatch${c.value.toLowerCase() === selectedColor.toLowerCase() ? " selected" : ""}" data-color="${c.value}" style="background:${c.value};" title="${c.name}"></button>`
+          ).join("")}
+          <label class="cal-color-swatch cal-color-custom" title="Custom color" style="background:${selectedColor};">
+            <input type="color" id="evColorCustom" value="${/^#[0-9a-f]{6}$/i.test(selectedColor) ? selectedColor : DEFAULT_EVENT_COLOR}" />
+          </label>
+        </div>
+      </div>
+      <div class="field">
+        <label>REPEATS</label>
+        <select id="evRepeat">
+          <option value="NONE" ${!existing || existing.repeatRule === "NONE" ? "selected" : ""}>Does not repeat</option>
+          <option value="WEEKLY" ${existing?.repeatRule === "WEEKLY" ? "selected" : ""}>Weekly</option>
+          <option value="BIWEEKLY" ${existing?.repeatRule === "BIWEEKLY" ? "selected" : ""}>Every 2 weeks</option>
+          <option value="MONTHLY" ${existing?.repeatRule === "MONTHLY" ? "selected" : ""}>Monthly</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>NOTES (OPTIONAL)</label>
+        <textarea id="evNotes" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:9px 10px;font-size:13px;min-height:60px;resize:vertical;">${existing?.notes ? escapeHtml(existing.notes) : ""}</textarea>
+      </div>
+      <div id="evErr" style="color:var(--accent-red);font-size:11.5px;margin:-2px 0 6px;min-height:16px;"></div>
+      <button class="btn primary" id="evSave" style="width:100%;">${existing ? "SAVE CHANGES" : "ADD EVENT"}</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".close").onclick = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  const customSwatch = overlay.querySelector(".cal-color-custom");
+  const customInput = overlay.querySelector("#evColorCustom");
+  const presetSwatches = overlay.querySelectorAll(".cal-color-swatch[data-color]");
+  presetSwatches.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedColor = btn.dataset.color;
+      presetSwatches.forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      customInput.value = selectedColor;
+      customSwatch.style.background = selectedColor;
+    });
+  });
+  customInput.addEventListener("input", () => {
+    selectedColor = customInput.value;
+    presetSwatches.forEach((b) => b.classList.remove("selected"));
+    customSwatch.style.background = selectedColor;
+  });
+
+  overlay.querySelector("#evSave").addEventListener("click", () => {
+    const errEl = overlay.querySelector("#evErr");
+    const title = overlay.querySelector("#evTitle").value.trim();
+    const startDate = overlay.querySelector("#evStartDate").value;
+    const endDate = overlay.querySelector("#evEndDate").value;
+    if (!title) { errEl.textContent = "Event title is required."; return; }
+    if (!startDate || !endDate) { errEl.textContent = "Pick a start and end date."; return; }
+    if (endDate < startDate) { errEl.textContent = "End date cannot be before start date."; return; }
+    const scopeInput = overlay.querySelector('input[name="evScope"]:checked');
+    const record = {
+      id: existing?.id || "ev" + Date.now(),
+      title,
+      eventType: overlay.querySelector("#evType").value,
+      scope: scopeInput ? scopeInput.value : "ALLIANCE",
+      startDate,
+      endDate,
+      time: overlay.querySelector("#evTime").value,
+      color: selectedColor,
+      repeatRule: overlay.querySelector("#evRepeat").value,
+      notes: overlay.querySelector("#evNotes").value.trim(),
+      createdBy: existing?.createdBy || Store.currentUser?.id || null,
+      updatedAt: Date.now(),
+    };
+    const events = Store.gameEvents;
+    Store.gameEvents = existing
+      ? events.map((x) => (x.id === existing.id ? record : x))
+      : [...events, record];
+    overlay.remove();
+    calendarSelectedDate = startDate;
+    renderGameCalendar(pageEl);
+  });
 }
 
 function renderChampionship(el) {

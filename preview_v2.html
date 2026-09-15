@@ -599,6 +599,86 @@ textarea.feedback-input{ width:100%; background:var(--panel-2); border:1px solid
 .rank-item[draggable="true"]{ cursor:grab; }
 .rank-item.dragging{ opacity:.4; }
 
+/* --- Game Calendar ---------------------------------------------------- */
+.cal-header{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+.cal-month-nav{ display:flex; align-items:center; gap:10px; }
+.cal-month-nav button{ background:var(--panel-2); border:1px solid var(--border); color:var(--text-dim); width:30px; height:30px; border-radius:4px; font-size:14px; }
+.cal-month-nav button:hover{ border-color:var(--accent-red); color:var(--accent-red); }
+.cal-month-label{ font-size:15px; font-weight:700; min-width:150px; text-align:center; }
+
+/* Weekday header row + the 6 week rows below it — each week row is its own
+   CSS grid (7 day columns x [daynum row + N event-bar lanes]), so a
+   multi-day event's colored bar can span multiple day columns in one grid
+   item instead of being drawn as separate per-day dots. See
+   renderGameCalendar()'s week-row segmenting + lane-stacking in app.js. */
+.cal-weekday-row{ display:grid; grid-template-columns:repeat(7, 1fr); margin-bottom:4px; }
+.cal-daylabel{ text-align:center; font-size:10px; letter-spacing:1px; color:var(--text-faint); padding-bottom:4px; }
+.cal-week-row{ display:grid; grid-template-columns:repeat(7, 1fr); column-gap:2px; row-gap:2px; margin-bottom:2px; }
+.cal-day-bg{
+  position:relative; border:1px solid var(--border); border-radius:4px;
+  background:var(--panel-2); padding:3px 4px; cursor:pointer;
+  transition:border-color .12s, background .12s;
+}
+.cal-day-bg:hover{ border-color:var(--accent-red); }
+.cal-day-bg.other-month{ opacity:.35; }
+.cal-day-bg.today{ border-color:var(--accent-amber); box-shadow:0 0 0 1px var(--accent-amber) inset; }
+.cal-day-bg.selected{ border-color:var(--accent-red); background:rgba(255,84,112,0.08); }
+.cal-day-bg .cal-daynum{ font-weight:700; font-size:11.5px; color:var(--text); }
+.cal-dot{ width:6px; height:6px; border-radius:50%; flex:none; display:inline-block; }
+
+.cal-event-bar{
+  position:relative; z-index:1; align-self:start; margin-top:1px;
+  display:flex; align-items:center; gap:3px; overflow:hidden;
+  height:18px; padding:0 5px; font-size:10px; font-weight:700; letter-spacing:.2px;
+  cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.35);
+}
+.cal-event-bar .cal-bar-label{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cal-event-bar .cal-bar-cont{ flex:none; opacity:.85; font-weight:900; }
+@media (max-width:680px){
+  .cal-day-bg .cal-daynum{ font-size:10px; }
+  .cal-event-bar{ height:15px; font-size:8.5px; padding:0 3px; }
+}
+
+/* Scope badges — independent of an event's own (freely chosen) color, so
+   "Alliance/Solo/State" always reads the same regardless of what color an
+   admin picked for that particular event. */
+.cal-scope-badge{
+  font-size:8.5px; letter-spacing:.6px; font-weight:800; padding:1px 6px; border-radius:3px; flex:none;
+}
+.cal-scope-badge.scope-ALLIANCE{ background:rgba(139,92,246,0.16); color:var(--accent-purple); }
+.cal-scope-badge.scope-SOLO{ background:rgba(6,182,212,0.16); color:var(--console-icecyan, var(--accent-amber)); }
+.cal-scope-badge.scope-STATE{ background:rgba(255,176,32,0.16); color:var(--accent-amber); }
+.cal-scope-chip{ display:inline-flex; align-items:center; font-size:9px; letter-spacing:.6px; font-weight:800; padding:2px 8px; border-radius:3px; }
+.cal-scope-chip.scope-ALLIANCE{ background:rgba(139,92,246,0.16); color:var(--accent-purple); }
+.cal-scope-chip.scope-SOLO{ background:rgba(6,182,212,0.16); color:var(--console-icecyan, var(--accent-amber)); }
+.cal-scope-chip.scope-STATE{ background:rgba(255,176,32,0.16); color:var(--accent-amber); }
+.cal-legend{ display:flex; align-items:center; flex-wrap:wrap; gap:8px 10px; padding-top:8px; border-top:1px solid var(--border); }
+.cal-legend-note{ font-size:10.5px; color:var(--text-faint); margin-right:2px; }
+
+.cal-event-row{ display:flex; align-items:flex-start; gap:10px; background:var(--panel-2); border:1px solid var(--border); border-radius:4px; padding:10px 12px; margin-bottom:8px; border-left:3px solid var(--accent-red); }
+.cal-event-row .cal-event-date{ flex:none; width:80px; font-size:10.5px; color:var(--text-faint); letter-spacing:.5px; line-height:1.4; }
+.cal-event-row .cal-event-body{ flex:1; min-width:0; }
+.cal-event-row .cal-event-title{ font-size:13px; font-weight:700; color:var(--text); display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.cal-event-row .cal-event-notes{ font-size:11.5px; color:var(--text-faint); margin-top:3px; }
+.cal-event-row .cal-event-actions{ flex:none; display:flex; gap:6px; }
+.cal-event-row .cal-event-actions button{ background:none; border:1px solid var(--border); color:var(--text-faint); font-size:10.5px; padding:4px 8px; border-radius:3px; }
+.cal-event-row .cal-event-actions button:hover{ border-color:var(--accent-red); color:var(--accent-red); }
+.cal-recurring-badge{ font-size:9px; letter-spacing:.5px; color:var(--text-faint); border:1px solid var(--border); border-radius:3px; padding:1px 5px; }
+
+/* Add/Edit Event modal — event title, scope radios, start/end date, color
+   swatches. */
+.cal-scope-radios{ display:flex; flex-direction:column; gap:6px; }
+.cal-radio{ display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text-dim); cursor:pointer; }
+.cal-radio input{ width:auto; margin:0; accent-color:var(--accent-purple); }
+.cal-color-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:2px; }
+.cal-color-swatch{
+  width:26px; height:26px; border-radius:50%; border:2px solid transparent; padding:0; cursor:pointer;
+  box-shadow:0 0 0 1px var(--border); position:relative; flex:none;
+}
+.cal-color-swatch.selected{ border-color:#fff; box-shadow:0 0 0 1px var(--border), 0 0 0 3px rgba(255,255,255,0.15); }
+.cal-color-custom{ display:inline-flex; align-items:center; justify-content:center; overflow:hidden; }
+.cal-color-custom input[type="color"]{ opacity:0; width:100%; height:100%; cursor:pointer; padding:0; margin:0; border:none; min-width:0; }
+
 </style>
 <div id="shell"></div>
 
@@ -1682,6 +1762,118 @@ const SEED_FEEDBACK = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Game Calendar — Admin/officer-managed schedule of recurring Whiteout
+// Survival systems (SvS, Bear Trap, Castle Battle, etc.), shown to every
+// member on the "/calendar" route (see renderGameCalendar in app.js) and
+// via the "game_calendar" home-page card. Regular members can only view;
+// only isAdmin(user) can add/edit/delete (see the Game Calendar block in
+// app.js) — same admin gating already used for the SVS Signup and Schedule
+// features elsewhere in this file.
+// ---------------------------------------------------------------------------
+
+// Preset event TYPES — purely for categorization/filtering, not display
+// color (that's a separate, freely-chosen per-event color — see
+// EVENT_COLOR_PRESETS below). `defaultColor` is only a convenience prefill
+// when an admin picks a type in the Add Event form; it never overrides a
+// color the admin actually chose. Add more entries here if your alliance
+// tracks other recurring systems.
+const EVENT_TYPES = [
+  { id: "svs", label: "SVS (State vs State)", defaultColor: "#8B5CF6" },
+  { id: "bear_trap", label: "Bear Trap", defaultColor: "#3B82F6" },
+  { id: "castle_battle", label: "Castle Battle", defaultColor: "#EC4899" },
+  { id: "foundry_battle", label: "Foundry Battle", defaultColor: "#F97316" },
+  { id: "frost_dragon", label: "Frost Dragon / Frost Trial", defaultColor: "#06B6D4" },
+  { id: "crazy_joe", label: "Crazy Joe", defaultColor: "#EC4899" },
+  { id: "alliance_mobilization", label: "Alliance Mobilization", defaultColor: "#22C55E" },
+  { id: "alliance_championship", label: "Alliance Championship", defaultColor: "#EAB308" },
+  { id: "fishing_tournament", label: "Fishing Tournament", defaultColor: "#EAB308" },
+  { id: "arena", label: "Arena Brawl", defaultColor: "#EC4899" },
+  { id: "custom", label: "Custom / Other", defaultColor: "#8B5CF6" },
+];
+function eventTypeInfo(id) {
+  return EVENT_TYPES.find((et) => et.id === id) || EVENT_TYPES[EVENT_TYPES.length - 1];
+}
+
+// Who an event is for — exactly one, shown as a small badge alongside the
+// event title (see the Game Calendar block in app.js).
+const EVENT_SCOPES = [
+  { id: "ALLIANCE", label: "Alliance Event" },
+  { id: "SOLO", label: "Solo Event" },
+  { id: "STATE", label: "State Event" },
+];
+function eventScopeInfo(id) {
+  return EVENT_SCOPES.find((s) => s.id === id) || EVENT_SCOPES[0];
+}
+
+// Preset swatches offered in the Add Event color picker — an admin can also
+// type any custom hex via the picker's "+" swatch. Purely a display color,
+// independent of the event's type.
+const EVENT_COLOR_PRESETS = [
+  { name: "Purple", value: "#8B5CF6" },
+  { name: "Pink", value: "#EC4899" },
+  { name: "Red", value: "#EF4444" },
+  { name: "Orange", value: "#F97316" },
+  { name: "Gold", value: "#EAB308" },
+  { name: "Green", value: "#22C55E" },
+  { name: "Teal", value: "#14B8A6" },
+  { name: "Cyan", value: "#06B6D4" },
+  { name: "Blue", value: "#3B82F6" },
+];
+const DEFAULT_EVENT_COLOR = "#8B5CF6";
+
+// Picks black or white text for readable contrast against an arbitrary
+// event color (used on calendar bars, which get their background color
+// directly from the event, not from a fixed theme token).
+function readableTextColor(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ""));
+  if (!m) return "#fff";
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.62 ? "#141422" : "#fff";
+}
+
+// Fills in any field missing from an older/partial event record — an
+// admin-typed `title` and `scope` are always required going forward, but a
+// record saved by an earlier version of this feature only had `typeId` +
+// `date` + `recurring`, so this maps that shape onto the current one
+// (typeId → eventType, date → startDate/endDate, recurring → repeatRule,
+// and a type-based default color/title) without ever touching storage —
+// call it wherever an event is read, not when it's saved.
+function normalizeEvent(raw) {
+  if (!raw) return raw;
+  const startDate = raw.startDate || raw.date;
+  const eventType = raw.eventType || raw.typeId || "custom";
+  const typeInfo = eventTypeInfo(eventType);
+  const legacyRepeat = raw.recurring ? String(raw.recurring).toUpperCase() : null;
+  const repeatRule = raw.repeatRule || legacyRepeat || "NONE";
+  return {
+    id: raw.id,
+    title: raw.title && String(raw.title).trim() ? String(raw.title).trim() : typeInfo.label,
+    eventType,
+    scope: raw.scope || "ALLIANCE",
+    startDate,
+    endDate: raw.endDate || startDate,
+    time: raw.time || "",
+    color: raw.color || typeInfo.defaultColor || DEFAULT_EVENT_COLOR,
+    repeatRule: ["NONE", "WEEKLY", "BIWEEKLY", "MONTHLY"].includes(repeatRule) ? repeatRule : "NONE",
+    notes: raw.notes || "",
+    createdBy: raw.createdBy || null,
+    updatedAt: raw.updatedAt || Date.now(),
+  };
+}
+
+// Empty by default — an admin populates real dates for their own state
+// from Game Calendar → Add Event. Shape: { id, title, eventType, scope,
+// startDate: "YYYY-MM-DD", endDate: "YYYY-MM-DD" (== startDate for a
+// one-day event), time: "HH:MM" | "", color: "#RRGGBB",
+// repeatRule: "NONE"|"WEEKLY"|"BIWEEKLY"|"MONTHLY", notes, createdBy,
+// updatedAt }. Always read an event through normalizeEvent() rather than
+// this array directly, so older records (or ones synced from a version of
+// this feature before per-event color/scope/date-range existed) still work.
+const SEED_GAME_EVENTS = [];
+
 // Tools that don't exist yet — shown on the home page as "coming soon" so
 // there's a place for them once they're built. Add more entries here as
 // you build them out. Alliance Championship and Bear Squad Calculator used
@@ -1736,6 +1928,8 @@ const SUPABASE_SYNCED_DEFAULTS = {
   wos_svs_signups: {},
   // Admin-controlled — whether players can currently submit/edit a signup.
   wos_svs_signups_open: true,
+  // Game Calendar — array of event records, see SEED_GAME_EVENTS above.
+  wos_game_events: SEED_GAME_EVENTS,
 };
 
 // ---------------------------------------------------------------------------
@@ -1802,6 +1996,7 @@ const Store = {
       this._set("wos_championship", {});
       this._set("wos_svs_signups", {});
       this._set("wos_svs_signups_open", true);
+      this._set("wos_game_events", SEED_GAME_EVENTS);
       this._set("wos_current_user", null);
       localStorage.setItem("wos_seeded_v2", "1");
     } else {
@@ -1983,6 +2178,11 @@ const Store = {
   get svsSignupsOpen() { return this._synced("wos_svs_signups_open", true).get(); },
   set svsSignupsOpen(v) { this._synced("wos_svs_signups_open", true).set(v); },
 
+  // Game Calendar — array of event records, see SEED_GAME_EVENTS and
+  // EVENT_TYPES above, and the "Game Calendar" block in app.js.
+  get gameEvents() { return this._synced("wos_game_events", SEED_GAME_EVENTS).get(); },
+  set gameEvents(v) { this._synced("wos_game_events", SEED_GAME_EVENTS).set(v); },
+
   // Always localStorage-only, Supabase or not — see the comment above
   // SUPABASE_SYNCED_DEFAULTS.
   get currentUser() { return this._get("wos_current_user", null); },
@@ -2017,6 +2217,84 @@ function luckyWheelPoints(gems) {
 
 function isAdmin(user) {
   return !!user && (user.role === "admin" || user.role === "leader" || user.role === "officer");
+}
+
+// ---------------------------------------------------------------------------
+// Game Calendar helpers — expand each stored event's `repeatRule` into
+// concrete date-RANGE occurrences that overlap a given range, so a single
+// "SVS every week, Mon–Wed" record shows up on every matching week of the
+// visible month without ever being duplicated in storage. Non-repeating
+// events just check their one [startDate, endDate] span overlaps the range.
+// ---------------------------------------------------------------------------
+function parseEventDate(dateStr) {
+  // new Date("YYYY-MM-DD") parses as UTC midnight, which can shift a day
+  // backward in negative-UTC-offset timezones — parse the parts directly
+  // and build a LOCAL date instead, so "on this date" always means the
+  // same calendar day the admin typed in, everywhere.
+  const [y, m, d] = String(dateStr).split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+function fmtEventDate(date) {
+  const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, "0"), d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+// Every concrete occurrence of `rawEvent` whose [start, end] span overlaps
+// [rangeStart, rangeEnd] (inclusive, both local Date objects) — one entry
+// per occurrence, each carrying the normalized event plus its own
+// `occurrenceStart`/`occurrenceEnd` ("YYYY-MM-DD" strings) for that specific
+// span. A span can extend outside the range on either side (e.g. a 5-day
+// event that started last month) — callers clip to what they actually
+// render (see the month-grid week-row segmenting in app.js).
+function eventOccurrencesInRange(rawEvent, rangeStart, rangeEnd) {
+  const event = normalizeEvent(rawEvent);
+  const start = parseEventDate(event.startDate);
+  const end = parseEventDate(event.endDate);
+  const durationMs = Math.max(0, end - start);
+  const out = [];
+  const tryPush = (occStart) => {
+    const occEnd = new Date(occStart.getTime() + durationMs);
+    if (occEnd >= rangeStart && occStart <= rangeEnd) {
+      out.push({ ...event, occurrenceStart: fmtEventDate(occStart), occurrenceEnd: fmtEventDate(occEnd) });
+    }
+  };
+  if (event.repeatRule === "MONTHLY") {
+    const cursor = new Date(start);
+    let guard = 0;
+    while (cursor <= rangeEnd && guard++ < 240) {
+      tryPush(cursor);
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return out;
+  }
+  const stepDays = event.repeatRule === "WEEKLY" ? 7 : event.repeatRule === "BIWEEKLY" ? 14 : null;
+  if (!stepDays) {
+    tryPush(start);
+    return out;
+  }
+  const cursor = new Date(start);
+  let guard = 0;
+  while (cursor <= rangeEnd && guard++ < 400) {
+    tryPush(cursor);
+    cursor.setDate(cursor.getDate() + stepDays);
+  }
+  return out;
+}
+// All occurrences (from every stored event) within a range, flattened and
+// sorted by start date/time — the shared source of truth for both the
+// month grid and the "Upcoming Events" list in renderGameCalendar (app.js).
+function gameEventOccurrencesInRange(rangeStart, rangeEnd) {
+  return Store.gameEvents
+    .flatMap((ev) => eventOccurrencesInRange(ev, rangeStart, rangeEnd))
+    .sort((a, b) => (a.occurrenceStart + (a.time || "")).localeCompare(b.occurrenceStart + (b.time || "")));
+}
+// Home-page card meta — how many occurrences land in the next 30 days,
+// starting today.
+function gameCalendarUpcomingCount() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = new Date(today);
+  end.setDate(end.getDate() + 30);
+  return gameEventOccurrencesInRange(today, end).length;
 }
 
 // ---------------------------------------------------------------------------
@@ -3978,6 +4256,7 @@ const ROUTES = {
   "/championship": renderChampionship,
   "/svs-signup": renderSvsSignupPage,
   "/bears": renderBearCalculator,
+  "/calendar": renderGameCalendar,
 };
 // wire up stub routes for planned tools
 // Named `tool`, not `t` — `t` is the global translation lookup (see
@@ -4372,11 +4651,17 @@ function renderHome(el) {
         meta: "ROSTER, TROOPS & AUTO SQUAD BUILDER",
         num: "06", iconName: "paw", tag: "ANALYTICS", scene: "bear_calculator", bright: true,
       })}
+      ${opCard({
+        href: "#/calendar", color: "var(--accent-red)", title: "game_calendar",
+        desc: "SVS, Bear Trap, Castle Battle and every other recurring event, on one shared calendar.",
+        meta: `${gameCalendarUpcomingCount()} UPCOMING EVENT${gameCalendarUpcomingCount() === 1 ? "" : "S"}`,
+        num: "07", iconName: "calendar", tag: "SCHEDULE", scene: "championship", bright: true,
+      })}
       ${PLANNED_TOOLS.map((tool, i) =>
         opCard({
           href: "#/" + tool.id, color: tool.color, title: tool.title,
           desc: tool.desc, meta: t("home.comingSoon").toUpperCase(), dim: true,
-          num: String(i + 7).padStart(2, "0"), iconName: tool.icon || "doc", tag: tool.tag, scene: tool.scene || "bear_calculator",
+          num: String(i + 8).padStart(2, "0"), iconName: tool.icon || "doc", tag: tool.tag, scene: tool.scene || "bear_calculator",
         })
       ).join("")}
     </div>
@@ -7410,6 +7695,412 @@ function renderBearCalculator(el) {
   }
   bearCalcRoot = ReactDOM.createRoot(mount);
   bearCalcRoot.render(React.createElement(BearSquadCalculatorApp));
+}
+
+// ---------------------------------------------------------------------------
+// Game Calendar — admin/officer-managed schedule of recurring Whiteout
+// Survival systems (see EVENT_TYPES/EVENT_SCOPES/EVENT_COLOR_PRESETS +
+// SEED_GAME_EVENTS in data.js). Regular members get a read-only month view
+// + upcoming list; isAdmin(user) also gets Add/Edit/Delete. Editing a
+// recurring event edits the whole series (there's no per-occurrence
+// override) — keeps the data model simple, and matches how these systems
+// actually work in-game (the whole schedule shifts together, not one
+// instance of it).
+//
+// Multi-day events render as ONE continuous colored bar spanning every day
+// they cover, not a separate dot per day — see the week-row segmenting +
+// lane-stacking below. Each event still carries a single stored
+// startDate/endDate; a bar that crosses into the next calendar row is
+// re-clipped to that row (so it still looks continuous) but stays one
+// event the whole way — no duplicate records are ever created for it.
+// ---------------------------------------------------------------------------
+let calendarViewDate = (() => { const d = new Date(); d.setDate(1); return d; })();
+let calendarSelectedDate = null; // "YYYY-MM-DD" | null — null = show upcoming list instead of one day
+
+const CAL_WEEKDAY_LABELS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+
+function fmtEventDateLabel(dateStr) {
+  const d = parseEventDate(dateStr);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function fmtEventRangeLabel(startStr, endStr) {
+  return startStr === endStr
+    ? fmtEventDateLabel(startStr)
+    : `${fmtEventDateLabel(startStr)} – ${fmtEventDateLabel(endStr)}`;
+}
+
+function renderGameCalendar(el) {
+  const user = Store.currentUser;
+  const admin = isAdmin(user);
+  const year = calendarViewDate.getFullYear();
+  const month = calendarViewDate.getMonth();
+
+  // Build a 6x7 grid of local dates covering the visible month (plus the
+  // lead-in/lead-out days from the adjacent months needed to fill the
+  // first and last week), grouped into 6 week-rows for bar segmenting.
+  const firstOfMonth = new Date(year, month, 1);
+  const gridStart = new Date(firstOfMonth);
+  gridStart.setDate(gridStart.getDate() - firstOfMonth.getDay());
+  const cells = Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    return d;
+  });
+  const gridEnd = cells[cells.length - 1];
+  const weeks = Array.from({ length: 6 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
+
+  const occurrences = gameEventOccurrencesInRange(gridStart, gridEnd);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = fmtEventDate(today);
+
+  // Day-click list — which occurrences touch a given date, expanded from
+  // each occurrence's [occurrenceStart, occurrenceEnd] span.
+  const byDate = {};
+  occurrences.forEach((occ) => {
+    const s = parseEventDate(occ.occurrenceStart), e = parseEventDate(occ.occurrenceEnd);
+    for (const d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+      if (d >= gridStart && d <= gridEnd) (byDate[fmtEventDate(d)] = byDate[fmtEventDate(d)] || []).push(occ);
+    }
+  });
+
+  // Right-hand list: either the selected day's occurrences, or (no
+  // selection) the next 90 days of upcoming occurrences — one entry per
+  // EVENT, never one per day it spans.
+  let listTitle, listOccurrences;
+  if (calendarSelectedDate) {
+    listTitle = fmtEventDateLabel(calendarSelectedDate).toUpperCase();
+    listOccurrences = byDate[calendarSelectedDate] || [];
+  } else {
+    listTitle = "UPCOMING EVENTS";
+    const upcomingEnd = new Date(today);
+    upcomingEnd.setDate(upcomingEnd.getDate() + 90);
+    listOccurrences = gameEventOccurrencesInRange(today, upcomingEnd);
+  }
+
+  // --- Week-row bar segmenting + lane stacking ----------------------------
+  // For each visible week, clip every occurrence that touches it down to
+  // that week's [start,end] span, then greedily assign each resulting
+  // segment to the first "lane" (stacked row) whose last-used column is
+  // before this segment's start column — the same interval-stacking
+  // approach a full calendar UI uses so overlapping events never collide.
+  const weekRowsHtml = weeks
+    .map((week) => {
+      const weekStart = week[0], weekEnd = week[6];
+      const segs = [];
+      occurrences.forEach((occ) => {
+        const occStart = parseEventDate(occ.occurrenceStart), occEnd = parseEventDate(occ.occurrenceEnd);
+        if (occEnd < weekStart || occStart > weekEnd) return;
+        const segStart = occStart < weekStart ? weekStart : occStart;
+        const segEnd = occEnd > weekEnd ? weekEnd : occEnd;
+        segs.push({
+          occ,
+          colStart: Math.round((segStart - weekStart) / 86400000),
+          colEnd: Math.round((segEnd - weekStart) / 86400000),
+          continuesBefore: occStart < weekStart,
+          continuesAfter: occEnd > weekEnd,
+        });
+      });
+      segs.sort((a, b) => a.colStart - b.colStart || (b.colEnd - b.colStart) - (a.colEnd - a.colStart));
+      const laneLastCol = [];
+      segs.forEach((s) => {
+        let lane = laneLastCol.findIndex((last) => last < s.colStart);
+        if (lane === -1) { lane = laneLastCol.length; laneLastCol.push(-1); }
+        s.lane = lane;
+        laneLastCol[lane] = s.colEnd;
+      });
+      const laneCount = Math.max(1, laneLastCol.length);
+
+      const dayCellsHtml = week
+        .map((d, i) => {
+          const dStr = fmtEventDate(d);
+          const cls = [
+            "cal-day-bg",
+            d.getMonth() === month ? "" : "other-month",
+            dStr === todayStr ? "today" : "",
+            dStr === calendarSelectedDate ? "selected" : "",
+          ].filter(Boolean).join(" ");
+          return `<div class="${cls}" data-caldate="${dStr}" style="grid-column:${i + 1};grid-row:1 / -1;"><span class="cal-daynum">${d.getDate()}</span></div>`;
+        })
+        .join("");
+
+      const barsHtml = segs
+        .map((s) => {
+          const o = s.occ;
+          const title = escapeHtml(o.title);
+          const roundL = !s.continuesBefore, roundR = !s.continuesAfter;
+          const radius = `${roundL ? "5px" : "0"} ${roundR ? "5px" : "0"} ${roundR ? "5px" : "0"} ${roundL ? "5px" : "0"}`;
+          return `
+            <div class="cal-event-bar" data-calbar="${o.id}" data-baroccstart="${o.occurrenceStart}"
+                 style="grid-column:${s.colStart + 1} / ${s.colEnd + 2};grid-row:${s.lane + 2};background:${o.color};color:${readableTextColor(o.color)};border-radius:${radius};"
+                 title="${title}">
+              ${!roundL ? `<span class="cal-bar-cont">‹</span>` : ""}<span class="cal-bar-label">${title}</span>${!roundR ? `<span class="cal-bar-cont">›</span>` : ""}
+            </div>`;
+        })
+        .join("");
+
+      return `<div class="cal-week-row" style="grid-template-rows:22px repeat(${laneCount}, 20px);">${dayCellsHtml}${barsHtml}</div>`;
+    })
+    .join("");
+
+  el.innerHTML = `
+    <div class="eyebrow">// SCHEDULE</div>
+    <h1 class="page-title" style="color:var(--accent-red)">game_calendar</h1>
+
+    <div class="panel">
+      <div class="cal-header">
+        <div class="cal-month-nav">
+          <button id="calPrev">‹</button>
+          <span class="cal-month-label">${firstOfMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" }).toUpperCase()}</span>
+          <button id="calNext">›</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="btn small" id="calToday">TODAY</button>
+          ${admin ? `<button class="btn primary small" id="calAdd">+ ADD EVENT</button>` : ""}
+        </div>
+      </div>
+
+      <div class="cal-weekday-row">
+        ${CAL_WEEKDAY_LABELS.map((l) => `<div class="cal-daylabel">${l}</div>`).join("")}
+      </div>
+      <div style="margin-bottom:10px;">${weekRowsHtml}</div>
+
+      <div class="cal-legend">
+        <span class="cal-legend-note">Colors are set per event — scope:</span>
+        ${EVENT_SCOPES.map((s) => `<span class="cal-scope-chip scope-${s.id}">${s.label.replace(" Event", "").toUpperCase()}</span>`).join("")}
+      </div>
+    </div>
+
+    <div class="db-heading">
+      <span class="stat-icon">${icon("calendar")}</span>
+      <div>
+        <div class="title">${listTitle}</div>
+        <div class="sub">${calendarSelectedDate ? `<a href="#" id="calClearSelection" style="color:var(--accent-red);">← back to upcoming</a>` : "Next 90 days"}</div>
+      </div>
+    </div>
+    <div>
+      ${
+        listOccurrences.length
+          ? listOccurrences
+              .map((o) => {
+                const scopeLabel = eventScopeInfo(o.scope).label.replace(" Event", "").toUpperCase();
+                return `
+                <div class="cal-event-row" style="border-left-color:${o.color};">
+                  <div class="cal-event-date">${fmtEventRangeLabel(o.occurrenceStart, o.occurrenceEnd)}${o.time ? `<br/>${escapeHtml(o.time)}` : ""}</div>
+                  <div class="cal-event-body">
+                    <div class="cal-event-title">
+                      <span class="cal-dot" style="background:${o.color};"></span>${escapeHtml(o.title)}
+                      <span class="cal-scope-badge scope-${o.scope}">${scopeLabel}</span>
+                      ${o.repeatRule !== "NONE" ? `<span class="cal-recurring-badge">${o.repeatRule}</span>` : ""}
+                    </div>
+                    ${o.notes ? `<div class="cal-event-notes">${escapeHtml(o.notes)}</div>` : ""}
+                  </div>
+                  ${
+                    admin
+                      ? `<div class="cal-event-actions">
+                          <button data-caledit="${o.id}">EDIT</button>
+                          <button data-caldelete="${o.id}">DELETE</button>
+                        </div>`
+                      : ""
+                  }
+                </div>`;
+              })
+              .join("")
+          : `<div class="empty">${calendarSelectedDate ? "No events on this day." : "No upcoming events in the next 90 days."}</div>`
+      }
+    </div>
+  `;
+
+  el.querySelector("#calPrev").addEventListener("click", () => {
+    calendarViewDate = new Date(year, month - 1, 1);
+    renderGameCalendar(el);
+  });
+  el.querySelector("#calNext").addEventListener("click", () => {
+    calendarViewDate = new Date(year, month + 1, 1);
+    renderGameCalendar(el);
+  });
+  el.querySelector("#calToday").addEventListener("click", () => {
+    calendarViewDate = (() => { const d = new Date(); d.setDate(1); return d; })();
+    calendarSelectedDate = todayStr;
+    renderGameCalendar(el);
+  });
+  el.querySelector("#calAdd")?.addEventListener("click", () => openEventModal(el, null, calendarSelectedDate || todayStr));
+  el.querySelector("#calClearSelection")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    calendarSelectedDate = null;
+    renderGameCalendar(el);
+  });
+  el.querySelectorAll("[data-caldate]").forEach((cell) =>
+    cell.addEventListener("click", () => {
+      const d = cell.dataset.caldate;
+      calendarSelectedDate = calendarSelectedDate === d ? null : d;
+      renderGameCalendar(el);
+    })
+  );
+  el.querySelectorAll("[data-calbar]").forEach((bar) =>
+    bar.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (admin) {
+        const raw = Store.gameEvents.find((x) => x.id === bar.dataset.calbar);
+        if (raw) openEventModal(el, raw, raw.startDate || raw.date);
+      } else {
+        calendarSelectedDate = bar.dataset.baroccstart;
+        renderGameCalendar(el);
+      }
+    })
+  );
+  el.querySelectorAll("[data-caledit]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const raw = Store.gameEvents.find((x) => x.id === b.dataset.caledit);
+      if (raw) openEventModal(el, raw, raw.startDate || raw.date);
+    })
+  );
+  el.querySelectorAll("[data-caldelete]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const events = Store.gameEvents;
+      const raw = events.find((x) => x.id === b.dataset.caldelete);
+      if (!raw) return;
+      const ev = normalizeEvent(raw);
+      if (!confirm(`Delete "${ev.title}"${ev.repeatRule !== "NONE" ? " and its whole recurring series" : ""}? This can't be undone.`)) return;
+      Store.gameEvents = events.filter((x) => x.id !== ev.id);
+      renderGameCalendar(el);
+    })
+  );
+}
+
+// Add/Edit Event modal — `existingRaw` is null for a new event, or the
+// stored (possibly older-shape) event record to edit in place, normalized
+// here before it ever touches the form. `presetDate` pre-fills Start/End
+// (the day the admin clicked, or today).
+function openEventModal(pageEl, existingRaw, presetDate) {
+  const existing = existingRaw ? normalizeEvent(existingRaw) : null;
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  const typeId = existing?.eventType || EVENT_TYPES[0].id;
+  const scope = existing?.scope || "ALLIANCE";
+  let selectedColor = existing?.color || eventTypeInfo(typeId).defaultColor || DEFAULT_EVENT_COLOR;
+
+  overlay.innerHTML = `
+    <div class="modal">
+      <button class="close">&times;</button>
+      <h3>${existing ? "Edit Event" : "Add Event"}</h3>
+      <div class="field" style="margin-top:10px;">
+        <label>EVENT TITLE</label>
+        <input id="evTitle" value="${existing?.title ? escapeHtml(existing.title) : ""}" placeholder="e.g. Alliance Mobilization Week" />
+      </div>
+      <div class="field">
+        <label>EVENT TYPE</label>
+        <select id="evType">
+          ${EVENT_TYPES.map((et) => `<option value="${et.id}" ${et.id === typeId ? "selected" : ""}>${et.label}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label>EVENT SCOPE</label>
+        <div class="cal-scope-radios">
+          ${EVENT_SCOPES.map(
+            (s) => `<label class="cal-radio"><input type="radio" name="evScope" value="${s.id}" ${s.id === scope ? "checked" : ""} />${s.label}</label>`
+          ).join("")}
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>START DATE</label>
+          <input id="evStartDate" type="date" value="${existing?.startDate || presetDate || ""}" />
+        </div>
+        <div class="field">
+          <label>END DATE</label>
+          <input id="evEndDate" type="date" value="${existing?.endDate || existing?.startDate || presetDate || ""}" />
+        </div>
+      </div>
+      <div class="field">
+        <label>TIME (OPTIONAL, SERVER/UTC)</label>
+        <input id="evTime" type="time" value="${existing?.time || ""}" />
+      </div>
+      <div class="field">
+        <label>EVENT COLOR</label>
+        <div class="cal-color-row">
+          ${EVENT_COLOR_PRESETS.map(
+            (c) =>
+              `<button type="button" class="cal-color-swatch${c.value.toLowerCase() === selectedColor.toLowerCase() ? " selected" : ""}" data-color="${c.value}" style="background:${c.value};" title="${c.name}"></button>`
+          ).join("")}
+          <label class="cal-color-swatch cal-color-custom" title="Custom color" style="background:${selectedColor};">
+            <input type="color" id="evColorCustom" value="${/^#[0-9a-f]{6}$/i.test(selectedColor) ? selectedColor : DEFAULT_EVENT_COLOR}" />
+          </label>
+        </div>
+      </div>
+      <div class="field">
+        <label>REPEATS</label>
+        <select id="evRepeat">
+          <option value="NONE" ${!existing || existing.repeatRule === "NONE" ? "selected" : ""}>Does not repeat</option>
+          <option value="WEEKLY" ${existing?.repeatRule === "WEEKLY" ? "selected" : ""}>Weekly</option>
+          <option value="BIWEEKLY" ${existing?.repeatRule === "BIWEEKLY" ? "selected" : ""}>Every 2 weeks</option>
+          <option value="MONTHLY" ${existing?.repeatRule === "MONTHLY" ? "selected" : ""}>Monthly</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>NOTES (OPTIONAL)</label>
+        <textarea id="evNotes" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:9px 10px;font-size:13px;min-height:60px;resize:vertical;">${existing?.notes ? escapeHtml(existing.notes) : ""}</textarea>
+      </div>
+      <div id="evErr" style="color:var(--accent-red);font-size:11.5px;margin:-2px 0 6px;min-height:16px;"></div>
+      <button class="btn primary" id="evSave" style="width:100%;">${existing ? "SAVE CHANGES" : "ADD EVENT"}</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".close").onclick = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  const customSwatch = overlay.querySelector(".cal-color-custom");
+  const customInput = overlay.querySelector("#evColorCustom");
+  const presetSwatches = overlay.querySelectorAll(".cal-color-swatch[data-color]");
+  presetSwatches.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedColor = btn.dataset.color;
+      presetSwatches.forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      customInput.value = selectedColor;
+      customSwatch.style.background = selectedColor;
+    });
+  });
+  customInput.addEventListener("input", () => {
+    selectedColor = customInput.value;
+    presetSwatches.forEach((b) => b.classList.remove("selected"));
+    customSwatch.style.background = selectedColor;
+  });
+
+  overlay.querySelector("#evSave").addEventListener("click", () => {
+    const errEl = overlay.querySelector("#evErr");
+    const title = overlay.querySelector("#evTitle").value.trim();
+    const startDate = overlay.querySelector("#evStartDate").value;
+    const endDate = overlay.querySelector("#evEndDate").value;
+    if (!title) { errEl.textContent = "Event title is required."; return; }
+    if (!startDate || !endDate) { errEl.textContent = "Pick a start and end date."; return; }
+    if (endDate < startDate) { errEl.textContent = "End date cannot be before start date."; return; }
+    const scopeInput = overlay.querySelector('input[name="evScope"]:checked');
+    const record = {
+      id: existing?.id || "ev" + Date.now(),
+      title,
+      eventType: overlay.querySelector("#evType").value,
+      scope: scopeInput ? scopeInput.value : "ALLIANCE",
+      startDate,
+      endDate,
+      time: overlay.querySelector("#evTime").value,
+      color: selectedColor,
+      repeatRule: overlay.querySelector("#evRepeat").value,
+      notes: overlay.querySelector("#evNotes").value.trim(),
+      createdBy: existing?.createdBy || Store.currentUser?.id || null,
+      updatedAt: Date.now(),
+    };
+    const events = Store.gameEvents;
+    Store.gameEvents = existing
+      ? events.map((x) => (x.id === existing.id ? record : x))
+      : [...events, record];
+    overlay.remove();
+    calendarSelectedDate = startDate;
+    renderGameCalendar(pageEl);
+  });
 }
 
 function renderChampionship(el) {

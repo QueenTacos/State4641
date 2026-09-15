@@ -597,3 +597,83 @@ textarea.feedback-input{ width:100%; background:var(--panel-2); border:1px solid
 .lane-drop.dragover{ background:rgba(0,91,179,0.12); outline:2px dashed var(--accent-purple); outline-offset:-2px; }
 .rank-item[draggable="true"]{ cursor:grab; }
 .rank-item.dragging{ opacity:.4; }
+
+/* --- Game Calendar ---------------------------------------------------- */
+.cal-header{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+.cal-month-nav{ display:flex; align-items:center; gap:10px; }
+.cal-month-nav button{ background:var(--panel-2); border:1px solid var(--border); color:var(--text-dim); width:30px; height:30px; border-radius:4px; font-size:14px; }
+.cal-month-nav button:hover{ border-color:var(--accent-red); color:var(--accent-red); }
+.cal-month-label{ font-size:15px; font-weight:700; min-width:150px; text-align:center; }
+
+/* Weekday header row + the 6 week rows below it — each week row is its own
+   CSS grid (7 day columns x [daynum row + N event-bar lanes]), so a
+   multi-day event's colored bar can span multiple day columns in one grid
+   item instead of being drawn as separate per-day dots. See
+   renderGameCalendar()'s week-row segmenting + lane-stacking in app.js. */
+.cal-weekday-row{ display:grid; grid-template-columns:repeat(7, 1fr); margin-bottom:4px; }
+.cal-daylabel{ text-align:center; font-size:10px; letter-spacing:1px; color:var(--text-faint); padding-bottom:4px; }
+.cal-week-row{ display:grid; grid-template-columns:repeat(7, 1fr); column-gap:2px; row-gap:2px; margin-bottom:2px; }
+.cal-day-bg{
+  position:relative; border:1px solid var(--border); border-radius:4px;
+  background:var(--panel-2); padding:3px 4px; cursor:pointer;
+  transition:border-color .12s, background .12s;
+}
+.cal-day-bg:hover{ border-color:var(--accent-red); }
+.cal-day-bg.other-month{ opacity:.35; }
+.cal-day-bg.today{ border-color:var(--accent-amber); box-shadow:0 0 0 1px var(--accent-amber) inset; }
+.cal-day-bg.selected{ border-color:var(--accent-red); background:rgba(255,84,112,0.08); }
+.cal-day-bg .cal-daynum{ font-weight:700; font-size:11.5px; color:var(--text); }
+.cal-dot{ width:6px; height:6px; border-radius:50%; flex:none; display:inline-block; }
+
+.cal-event-bar{
+  position:relative; z-index:1; align-self:start; margin-top:1px;
+  display:flex; align-items:center; gap:3px; overflow:hidden;
+  height:18px; padding:0 5px; font-size:10px; font-weight:700; letter-spacing:.2px;
+  cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.35);
+}
+.cal-event-bar .cal-bar-label{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cal-event-bar .cal-bar-cont{ flex:none; opacity:.85; font-weight:900; }
+@media (max-width:680px){
+  .cal-day-bg .cal-daynum{ font-size:10px; }
+  .cal-event-bar{ height:15px; font-size:8.5px; padding:0 3px; }
+}
+
+/* Scope badges — independent of an event's own (freely chosen) color, so
+   "Alliance/Solo/State" always reads the same regardless of what color an
+   admin picked for that particular event. */
+.cal-scope-badge{
+  font-size:8.5px; letter-spacing:.6px; font-weight:800; padding:1px 6px; border-radius:3px; flex:none;
+}
+.cal-scope-badge.scope-ALLIANCE{ background:rgba(139,92,246,0.16); color:var(--accent-purple); }
+.cal-scope-badge.scope-SOLO{ background:rgba(6,182,212,0.16); color:var(--console-icecyan, var(--accent-amber)); }
+.cal-scope-badge.scope-STATE{ background:rgba(255,176,32,0.16); color:var(--accent-amber); }
+.cal-scope-chip{ display:inline-flex; align-items:center; font-size:9px; letter-spacing:.6px; font-weight:800; padding:2px 8px; border-radius:3px; }
+.cal-scope-chip.scope-ALLIANCE{ background:rgba(139,92,246,0.16); color:var(--accent-purple); }
+.cal-scope-chip.scope-SOLO{ background:rgba(6,182,212,0.16); color:var(--console-icecyan, var(--accent-amber)); }
+.cal-scope-chip.scope-STATE{ background:rgba(255,176,32,0.16); color:var(--accent-amber); }
+.cal-legend{ display:flex; align-items:center; flex-wrap:wrap; gap:8px 10px; padding-top:8px; border-top:1px solid var(--border); }
+.cal-legend-note{ font-size:10.5px; color:var(--text-faint); margin-right:2px; }
+
+.cal-event-row{ display:flex; align-items:flex-start; gap:10px; background:var(--panel-2); border:1px solid var(--border); border-radius:4px; padding:10px 12px; margin-bottom:8px; border-left:3px solid var(--accent-red); }
+.cal-event-row .cal-event-date{ flex:none; width:80px; font-size:10.5px; color:var(--text-faint); letter-spacing:.5px; line-height:1.4; }
+.cal-event-row .cal-event-body{ flex:1; min-width:0; }
+.cal-event-row .cal-event-title{ font-size:13px; font-weight:700; color:var(--text); display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.cal-event-row .cal-event-notes{ font-size:11.5px; color:var(--text-faint); margin-top:3px; }
+.cal-event-row .cal-event-actions{ flex:none; display:flex; gap:6px; }
+.cal-event-row .cal-event-actions button{ background:none; border:1px solid var(--border); color:var(--text-faint); font-size:10.5px; padding:4px 8px; border-radius:3px; }
+.cal-event-row .cal-event-actions button:hover{ border-color:var(--accent-red); color:var(--accent-red); }
+.cal-recurring-badge{ font-size:9px; letter-spacing:.5px; color:var(--text-faint); border:1px solid var(--border); border-radius:3px; padding:1px 5px; }
+
+/* Add/Edit Event modal — event title, scope radios, start/end date, color
+   swatches. */
+.cal-scope-radios{ display:flex; flex-direction:column; gap:6px; }
+.cal-radio{ display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text-dim); cursor:pointer; }
+.cal-radio input{ width:auto; margin:0; accent-color:var(--accent-purple); }
+.cal-color-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:2px; }
+.cal-color-swatch{
+  width:26px; height:26px; border-radius:50%; border:2px solid transparent; padding:0; cursor:pointer;
+  box-shadow:0 0 0 1px var(--border); position:relative; flex:none;
+}
+.cal-color-swatch.selected{ border-color:#fff; box-shadow:0 0 0 1px var(--border), 0 0 0 3px rgba(255,255,255,0.15); }
+.cal-color-custom{ display:inline-flex; align-items:center; justify-content:center; overflow:hidden; }
+.cal-color-custom input[type="color"]{ opacity:0; width:100%; height:100%; cursor:pointer; padding:0; margin:0; border:none; min-width:0; }

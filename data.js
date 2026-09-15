@@ -376,6 +376,118 @@ const SEED_FEEDBACK = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Game Calendar — Admin/officer-managed schedule of recurring Whiteout
+// Survival systems (SvS, Bear Trap, Castle Battle, etc.), shown to every
+// member on the "/calendar" route (see renderGameCalendar in app.js) and
+// via the "game_calendar" home-page card. Regular members can only view;
+// only isAdmin(user) can add/edit/delete (see the Game Calendar block in
+// app.js) — same admin gating already used for the SVS Signup and Schedule
+// features elsewhere in this file.
+// ---------------------------------------------------------------------------
+
+// Preset event TYPES — purely for categorization/filtering, not display
+// color (that's a separate, freely-chosen per-event color — see
+// EVENT_COLOR_PRESETS below). `defaultColor` is only a convenience prefill
+// when an admin picks a type in the Add Event form; it never overrides a
+// color the admin actually chose. Add more entries here if your alliance
+// tracks other recurring systems.
+const EVENT_TYPES = [
+  { id: "svs", label: "SVS (State vs State)", defaultColor: "#8B5CF6" },
+  { id: "bear_trap", label: "Bear Trap", defaultColor: "#3B82F6" },
+  { id: "castle_battle", label: "Castle Battle", defaultColor: "#EC4899" },
+  { id: "foundry_battle", label: "Foundry Battle", defaultColor: "#F97316" },
+  { id: "frost_dragon", label: "Frost Dragon / Frost Trial", defaultColor: "#06B6D4" },
+  { id: "crazy_joe", label: "Crazy Joe", defaultColor: "#EC4899" },
+  { id: "alliance_mobilization", label: "Alliance Mobilization", defaultColor: "#22C55E" },
+  { id: "alliance_championship", label: "Alliance Championship", defaultColor: "#EAB308" },
+  { id: "fishing_tournament", label: "Fishing Tournament", defaultColor: "#EAB308" },
+  { id: "arena", label: "Arena Brawl", defaultColor: "#EC4899" },
+  { id: "custom", label: "Custom / Other", defaultColor: "#8B5CF6" },
+];
+function eventTypeInfo(id) {
+  return EVENT_TYPES.find((et) => et.id === id) || EVENT_TYPES[EVENT_TYPES.length - 1];
+}
+
+// Who an event is for — exactly one, shown as a small badge alongside the
+// event title (see the Game Calendar block in app.js).
+const EVENT_SCOPES = [
+  { id: "ALLIANCE", label: "Alliance Event" },
+  { id: "SOLO", label: "Solo Event" },
+  { id: "STATE", label: "State Event" },
+];
+function eventScopeInfo(id) {
+  return EVENT_SCOPES.find((s) => s.id === id) || EVENT_SCOPES[0];
+}
+
+// Preset swatches offered in the Add Event color picker — an admin can also
+// type any custom hex via the picker's "+" swatch. Purely a display color,
+// independent of the event's type.
+const EVENT_COLOR_PRESETS = [
+  { name: "Purple", value: "#8B5CF6" },
+  { name: "Pink", value: "#EC4899" },
+  { name: "Red", value: "#EF4444" },
+  { name: "Orange", value: "#F97316" },
+  { name: "Gold", value: "#EAB308" },
+  { name: "Green", value: "#22C55E" },
+  { name: "Teal", value: "#14B8A6" },
+  { name: "Cyan", value: "#06B6D4" },
+  { name: "Blue", value: "#3B82F6" },
+];
+const DEFAULT_EVENT_COLOR = "#8B5CF6";
+
+// Picks black or white text for readable contrast against an arbitrary
+// event color (used on calendar bars, which get their background color
+// directly from the event, not from a fixed theme token).
+function readableTextColor(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ""));
+  if (!m) return "#fff";
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.62 ? "#141422" : "#fff";
+}
+
+// Fills in any field missing from an older/partial event record — an
+// admin-typed `title` and `scope` are always required going forward, but a
+// record saved by an earlier version of this feature only had `typeId` +
+// `date` + `recurring`, so this maps that shape onto the current one
+// (typeId → eventType, date → startDate/endDate, recurring → repeatRule,
+// and a type-based default color/title) without ever touching storage —
+// call it wherever an event is read, not when it's saved.
+function normalizeEvent(raw) {
+  if (!raw) return raw;
+  const startDate = raw.startDate || raw.date;
+  const eventType = raw.eventType || raw.typeId || "custom";
+  const typeInfo = eventTypeInfo(eventType);
+  const legacyRepeat = raw.recurring ? String(raw.recurring).toUpperCase() : null;
+  const repeatRule = raw.repeatRule || legacyRepeat || "NONE";
+  return {
+    id: raw.id,
+    title: raw.title && String(raw.title).trim() ? String(raw.title).trim() : typeInfo.label,
+    eventType,
+    scope: raw.scope || "ALLIANCE",
+    startDate,
+    endDate: raw.endDate || startDate,
+    time: raw.time || "",
+    color: raw.color || typeInfo.defaultColor || DEFAULT_EVENT_COLOR,
+    repeatRule: ["NONE", "WEEKLY", "BIWEEKLY", "MONTHLY"].includes(repeatRule) ? repeatRule : "NONE",
+    notes: raw.notes || "",
+    createdBy: raw.createdBy || null,
+    updatedAt: raw.updatedAt || Date.now(),
+  };
+}
+
+// Empty by default — an admin populates real dates for their own state
+// from Game Calendar → Add Event. Shape: { id, title, eventType, scope,
+// startDate: "YYYY-MM-DD", endDate: "YYYY-MM-DD" (== startDate for a
+// one-day event), time: "HH:MM" | "", color: "#RRGGBB",
+// repeatRule: "NONE"|"WEEKLY"|"BIWEEKLY"|"MONTHLY", notes, createdBy,
+// updatedAt }. Always read an event through normalizeEvent() rather than
+// this array directly, so older records (or ones synced from a version of
+// this feature before per-event color/scope/date-range existed) still work.
+const SEED_GAME_EVENTS = [];
+
 // Tools that don't exist yet — shown on the home page as "coming soon" so
 // there's a place for them once they're built. Add more entries here as
 // you build them out. Alliance Championship and Bear Squad Calculator used
@@ -430,6 +542,8 @@ const SUPABASE_SYNCED_DEFAULTS = {
   wos_svs_signups: {},
   // Admin-controlled — whether players can currently submit/edit a signup.
   wos_svs_signups_open: true,
+  // Game Calendar — array of event records, see SEED_GAME_EVENTS above.
+  wos_game_events: SEED_GAME_EVENTS,
 };
 
 // ---------------------------------------------------------------------------
@@ -496,6 +610,7 @@ const Store = {
       this._set("wos_championship", {});
       this._set("wos_svs_signups", {});
       this._set("wos_svs_signups_open", true);
+      this._set("wos_game_events", SEED_GAME_EVENTS);
       this._set("wos_current_user", null);
       localStorage.setItem("wos_seeded_v2", "1");
     } else {
@@ -677,6 +792,11 @@ const Store = {
   get svsSignupsOpen() { return this._synced("wos_svs_signups_open", true).get(); },
   set svsSignupsOpen(v) { this._synced("wos_svs_signups_open", true).set(v); },
 
+  // Game Calendar — array of event records, see SEED_GAME_EVENTS and
+  // EVENT_TYPES above, and the "Game Calendar" block in app.js.
+  get gameEvents() { return this._synced("wos_game_events", SEED_GAME_EVENTS).get(); },
+  set gameEvents(v) { this._synced("wos_game_events", SEED_GAME_EVENTS).set(v); },
+
   // Always localStorage-only, Supabase or not — see the comment above
   // SUPABASE_SYNCED_DEFAULTS.
   get currentUser() { return this._get("wos_current_user", null); },
@@ -711,6 +831,84 @@ function luckyWheelPoints(gems) {
 
 function isAdmin(user) {
   return !!user && (user.role === "admin" || user.role === "leader" || user.role === "officer");
+}
+
+// ---------------------------------------------------------------------------
+// Game Calendar helpers — expand each stored event's `repeatRule` into
+// concrete date-RANGE occurrences that overlap a given range, so a single
+// "SVS every week, Mon–Wed" record shows up on every matching week of the
+// visible month without ever being duplicated in storage. Non-repeating
+// events just check their one [startDate, endDate] span overlaps the range.
+// ---------------------------------------------------------------------------
+function parseEventDate(dateStr) {
+  // new Date("YYYY-MM-DD") parses as UTC midnight, which can shift a day
+  // backward in negative-UTC-offset timezones — parse the parts directly
+  // and build a LOCAL date instead, so "on this date" always means the
+  // same calendar day the admin typed in, everywhere.
+  const [y, m, d] = String(dateStr).split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+function fmtEventDate(date) {
+  const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, "0"), d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+// Every concrete occurrence of `rawEvent` whose [start, end] span overlaps
+// [rangeStart, rangeEnd] (inclusive, both local Date objects) — one entry
+// per occurrence, each carrying the normalized event plus its own
+// `occurrenceStart`/`occurrenceEnd` ("YYYY-MM-DD" strings) for that specific
+// span. A span can extend outside the range on either side (e.g. a 5-day
+// event that started last month) — callers clip to what they actually
+// render (see the month-grid week-row segmenting in app.js).
+function eventOccurrencesInRange(rawEvent, rangeStart, rangeEnd) {
+  const event = normalizeEvent(rawEvent);
+  const start = parseEventDate(event.startDate);
+  const end = parseEventDate(event.endDate);
+  const durationMs = Math.max(0, end - start);
+  const out = [];
+  const tryPush = (occStart) => {
+    const occEnd = new Date(occStart.getTime() + durationMs);
+    if (occEnd >= rangeStart && occStart <= rangeEnd) {
+      out.push({ ...event, occurrenceStart: fmtEventDate(occStart), occurrenceEnd: fmtEventDate(occEnd) });
+    }
+  };
+  if (event.repeatRule === "MONTHLY") {
+    const cursor = new Date(start);
+    let guard = 0;
+    while (cursor <= rangeEnd && guard++ < 240) {
+      tryPush(cursor);
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return out;
+  }
+  const stepDays = event.repeatRule === "WEEKLY" ? 7 : event.repeatRule === "BIWEEKLY" ? 14 : null;
+  if (!stepDays) {
+    tryPush(start);
+    return out;
+  }
+  const cursor = new Date(start);
+  let guard = 0;
+  while (cursor <= rangeEnd && guard++ < 400) {
+    tryPush(cursor);
+    cursor.setDate(cursor.getDate() + stepDays);
+  }
+  return out;
+}
+// All occurrences (from every stored event) within a range, flattened and
+// sorted by start date/time — the shared source of truth for both the
+// month grid and the "Upcoming Events" list in renderGameCalendar (app.js).
+function gameEventOccurrencesInRange(rangeStart, rangeEnd) {
+  return Store.gameEvents
+    .flatMap((ev) => eventOccurrencesInRange(ev, rangeStart, rangeEnd))
+    .sort((a, b) => (a.occurrenceStart + (a.time || "")).localeCompare(b.occurrenceStart + (b.time || "")));
+}
+// Home-page card meta — how many occurrences land in the next 30 days,
+// starting today.
+function gameCalendarUpcomingCount() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = new Date(today);
+  end.setDate(end.getDate() + 30);
+  return gameEventOccurrencesInRange(today, end).length;
 }
 
 // ---------------------------------------------------------------------------
