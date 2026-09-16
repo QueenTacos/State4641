@@ -629,8 +629,15 @@ const PLANNED_TOOLS = [];
 // using localStorage exactly as it always has, with zero setup required.
 // ---------------------------------------------------------------------------
 const SUPABASE_CONFIG = {
-  url: "https://gogoxhqfrwfmvcmwtvho.supabase.co", // e.g. "https://xxxxxxxxxxxx.supabase.co" — Project Settings -> API
-  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdvZ294aHFmcndmbXZjbXd0dmhvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4NzM1NDgsImV4cCI6MjEwNDQ0OTU0OH0.K4kh3AWWB1g9BMnC_0YBWpqb5KkDg7mgUOGEzRJaZjA", // the "anon public" key on that same page — safe to publish, it's gated by Row Level Security, not secrecy
+  // State 4641's OWN, dedicated Supabase project — this used to point at
+  // the same project state-analytics (State 3929) uses, which meant the
+  // two "separate" sites were actually sharing one app_state table the
+  // whole time (last write to a given key wins, regardless of which site
+  // wrote it — this is what caused 4641 to display 3929's data). Fixed by
+  // pointing this at 4641's own project instead; state-analytics/data.js
+  // is untouched and still points at its original project.
+  url: "https://xnfmwutvchaeazejlzzq.supabase.co", // Project Settings -> API
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhuZm13dXR2Y2hhZWF6ZWpsenpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMTE4NjcsImV4cCI6MjEwNDg4Nzg2N30.sf3BLgrO_eCKPzAHKi86DZMXB-aYTRFcah3ZEDljE4Q", // the "anon public" key on that same page — safe to publish, it's gated by Row Level Security, not secrecy
 };
 
 const supabaseClient =
