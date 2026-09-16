@@ -900,6 +900,39 @@ let svsSignupEditingMemberId = null;
 // svsSignupAdminFilters above). "" = All Languages.
 let adminMemberLangFilter = "";
 
+// Admin page tabs — purely organizational (groups the same existing
+// panels that used to run down one long page into tabs); no panel's own
+// markup, fields, or logic changed, only which tab renders it. Module-level
+// so the selected tab survives re-renders within this Admin session, same
+// pattern as every other piece of Admin UI state on this page.
+// `adminOnly: true` tabs are hidden from an officer entirely (same content
+// that was already hidden from officers before tabs existed — see each
+// `officerScoped ? "" : ...` guard below); MEMBERS and SVS BATTLE SIGN UPS
+// stay visible to officers, same as before.
+const ADMIN_TABS = [
+  { id: "members", label: "MEMBERS" },
+  { id: "alliances", label: "ALLIANCES", adminOnly: true },
+  { id: "svs", label: "SVS BATTLE SIGN UPS" },
+  { id: "schedule", label: "SCHEDULE / EVENTS", adminOnly: true },
+  { id: "notifications", label: "ALLIANCE NOTIFICATIONS", adminOnly: true },
+  { id: "state", label: "STATE SETTINGS", adminOnly: true },
+  { id: "feedback", label: "FEEDBACK", adminOnly: true },
+];
+let adminActiveTab = "members";
+
+// Admin → Alliance Notifications (see renderAllianceNotificationsPanelHtml
+// below) — "" = All alliances / All events, "custom" for the event filter
+// = only notices with no eventId (Custom / General Notice).
+let allianceNoticeFilters = { alliance: "", event: "" };
+// id of the saved notice currently loaded into the editor for Edit, or
+// null when the editor is a fresh/blank "Create Notice" form.
+let allianceNoticeEditingId = null;
+// Set only by Duplicate — { allianceTag, eventId, noticeText } to seed a
+// fresh (non-edit) form once, so Save creates a NEW record rather than
+// overwriting the notice that was duplicated. Cleared after the next save
+// or the next time the editor is otherwise touched.
+let allianceNoticeFormDraft = null;
+
 function svsWizardTargetUser() {
   if (svsEditingMemberId) {
     // Defense in depth: even if svsEditingMemberId got set some other way
@@ -2664,6 +2697,223 @@ function wireSvsSignupAdminPanel(el, user, officerScoped) {
     });
   });
 }
+// ---------------------------------------------------------------------------
+// Alliance Notifications — admin-only (NOT officer/R4) library of reusable
+// notice text per alliance + Game Calendar event, for copy-pasting into
+// that alliance's chat. See the data model + normalizeAllianceNotice() /
+// gameCalendarEventOptions() in data.js. Same render-panel-html +
+// wire-panel pattern as SVS Alliance Signups above (renderAdmin embeds this
+// panel's HTML directly, then calls the wire function once at the end).
+// ---------------------------------------------------------------------------
+function renderAllianceNotificationsPanelHtml(user) {
+  const notices = Store.allianceNotices.map(normalizeAllianceNotice);
+  const alliances = Store.alliances;
+  const eventOptions = gameCalendarEventOptions();
+
+  // The editor prefills from (in priority order): the notice being edited,
+  // a Duplicate draft, or nothing (blank "Create Notice" form).
+  const editing = allianceNoticeEditingId ? notices.find((n) => n.id === allianceNoticeEditingId) : null;
+  const seed = editing || allianceNoticeFormDraft;
+  const formAlliance = seed?.allianceTag || "";
+  const formEventId = seed?.eventId || "";
+  const formText = seed?.noticeText || "";
+
+  const f = allianceNoticeFilters;
+  const filtered = notices
+    .filter((n) => !f.alliance || n.allianceTag === f.alliance)
+    .filter((n) => !f.event || (f.event === "custom" ? !n.eventId : n.eventId === f.event))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  return `
+    <div class="panel">
+      <div class="planner-header"><strong>Alliance Notifications</strong></div>
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">Write a reusable notice for an alliance and an event, then copy it straight into chat. Admin only — officers don't see this panel.</p>
+
+      <div class="section-title" style="margin-top:16px;">${editing ? "EDIT NOTICE" : "CREATE NOTICE"}</div>
+      <div class="field-row">
+        <div class="field">
+          <label>ALLIANCE</label>
+          <select id="anAlliance">
+            <option value="">Select alliance…</option>
+            ${alliances.map((a) => `<option value="${escapeHtml(a)}" ${formAlliance === a ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>EVENT</label>
+          <select id="anEvent">
+            <option value="" ${!formEventId ? "selected" : ""}>${ALLIANCE_NOTICE_CUSTOM_EVENT_LABEL}</option>
+            ${eventOptions.map((ev) => `<option value="${ev.id}" ${formEventId === ev.id ? "selected" : ""}>${escapeHtml(ev.title)}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>ALLIANCE NOTICE</label>
+        <textarea id="anText" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:9px 10px;font-size:13px;min-height:110px;resize:vertical;" placeholder="Type the notice to send to this alliance… 🚩🔥⚔️">${escapeHtml(formText)}</textarea>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;margin:-4px 0 12px;flex-wrap:wrap;">
+        <span style="font-size:11px;color:var(--text-faint);">Characters: <strong id="anCharCount" style="color:var(--text-dim);">${[...formText].length}</strong></span>
+        <span id="anErr" style="font-size:11.5px;color:var(--accent-red);"></span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn primary small" id="anSave">${editing ? "SAVE CHANGES" : "SAVE NOTICE"}</button>
+        ${editing ? `<button class="btn small" id="anCancelEdit">CANCEL EDIT</button>` : ""}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="planner-header" style="flex-wrap:wrap;gap:8px;">
+        <strong>Saved Notices (${filtered.length} / ${notices.length})</strong>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <select id="anFAlliance" style="background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 8px;font-size:11.5px;">
+          <option value="">All alliances</option>
+          ${alliances.map((a) => `<option value="${escapeHtml(a)}" ${f.alliance === a ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")}
+        </select>
+        <select id="anFEvent" style="background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 8px;font-size:11.5px;">
+          <option value="">All events</option>
+          <option value="custom" ${f.event === "custom" ? "selected" : ""}>${ALLIANCE_NOTICE_CUSTOM_EVENT_LABEL}</option>
+          ${eventOptions.map((ev) => `<option value="${ev.id}" ${f.event === ev.id ? "selected" : ""}>${escapeHtml(ev.title)}</option>`).join("")}
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${
+          filtered.length
+            ? filtered
+                .map(
+                  (n) => `
+              <div style="display:flex;gap:10px;align-items:flex-start;background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:10px 12px;flex-wrap:wrap;">
+                <div style="flex:1 1 220px;min-width:0;">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+                    ${allianceBadgeHtml(n.allianceTag)}
+                    <strong style="font-size:12.5px;">${escapeHtml(n.allianceTag || "—")}</strong>
+                    <span style="font-size:10.5px;color:var(--text-faint);">·</span>
+                    <span style="font-size:11.5px;color:var(--text-dim);">${escapeHtml(n.eventTitle)}</span>
+                  </div>
+                  <div style="font-size:12px;color:var(--text-dim);white-space:pre-wrap;overflow-wrap:anywhere;max-height:54px;overflow:hidden;">${
+                    n.noticeText ? escapeHtml(n.noticeText) : `<span style="color:var(--text-faint);">(empty)</span>`
+                  }</div>
+                  <div style="font-size:10.5px;color:var(--text-faint);margin-top:4px;">${n.characterCount} chars · updated ${new Date(n.updatedAt).toLocaleDateString()}</div>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;flex:none;">
+                  <button data-ancopy="${n.id}" class="btn small">Copy</button>
+                  <button data-anedit="${n.id}" class="btn small">Edit</button>
+                  <button data-andup="${n.id}" class="btn small">Duplicate</button>
+                  <button data-andel="${n.id}" class="btn small" style="color:var(--accent-red);">Delete</button>
+                </div>
+              </div>`
+                )
+                .join("")
+            : `<div class="empty">No saved notices match these filters.</div>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function wireAllianceNotificationsPanel(el, user) {
+  el.querySelector("#anText")?.addEventListener("input", (e) => {
+    const countEl = el.querySelector("#anCharCount");
+    if (countEl) countEl.textContent = String([...e.target.value].length);
+  });
+
+  el.querySelector("#anSave")?.addEventListener("click", () => {
+    const errEl = el.querySelector("#anErr");
+    const allianceTag = el.querySelector("#anAlliance").value;
+    const eventId = el.querySelector("#anEvent").value || null;
+    const noticeText = el.querySelector("#anText").value;
+    if (!allianceTag) { errEl.textContent = "Pick an alliance."; return; }
+    if (!noticeText.trim()) { errEl.textContent = "Write a notice before saving."; return; }
+    errEl.textContent = "";
+    const eventTitle = eventId ? gameCalendarEventOptions().find((ev) => ev.id === eventId)?.title || "" : ALLIANCE_NOTICE_CUSTOM_EVENT_LABEL;
+    const notices = Store.allianceNotices;
+    const editing = allianceNoticeEditingId ? notices.find((n) => n.id === allianceNoticeEditingId) : null;
+    const record = {
+      id: editing?.id || "an" + Date.now(),
+      allianceTag,
+      eventId,
+      eventTitle,
+      noticeText,
+      createdAt: editing?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+      createdBy: editing?.createdBy || user?.id || null,
+      updatedBy: user?.id || null,
+    };
+    Store.allianceNotices = editing ? notices.map((n) => (n.id === editing.id ? record : n)) : [...notices, record];
+    allianceNoticeEditingId = null;
+    allianceNoticeFormDraft = null;
+    renderAdmin(el);
+  });
+
+  el.querySelector("#anCancelEdit")?.addEventListener("click", () => {
+    allianceNoticeEditingId = null;
+    allianceNoticeFormDraft = null;
+    renderAdmin(el);
+  });
+
+  el.querySelector("#anFAlliance")?.addEventListener("change", (e) => {
+    allianceNoticeFilters = { ...allianceNoticeFilters, alliance: e.target.value };
+    renderAdmin(el);
+  });
+  el.querySelector("#anFEvent")?.addEventListener("change", (e) => {
+    allianceNoticeFilters = { ...allianceNoticeFilters, event: e.target.value };
+    renderAdmin(el);
+  });
+
+  el.querySelectorAll("[data-anedit]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      allianceNoticeEditingId = btn.dataset.anedit;
+      allianceNoticeFormDraft = null;
+      renderAdmin(el);
+    })
+  );
+  // Duplicate seeds a BLANK (non-edit) form with the source notice's
+  // fields — Save then creates a brand-new record rather than overwriting
+  // the one that was duplicated (spec #14: "SYP notice → Duplicate →
+  // change Alliance to SUN → Save" must produce two separate notices).
+  el.querySelectorAll("[data-andup]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const n = Store.allianceNotices.find((x) => x.id === btn.dataset.andup);
+      if (!n) return;
+      const norm = normalizeAllianceNotice(n);
+      allianceNoticeEditingId = null;
+      allianceNoticeFormDraft = { allianceTag: norm.allianceTag, eventId: norm.eventId, noticeText: norm.noticeText };
+      renderAdmin(el);
+    })
+  );
+  el.querySelectorAll("[data-andel]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (!confirm("Delete this alliance notice?")) return;
+      const id = btn.dataset.andel;
+      Store.allianceNotices = Store.allianceNotices.filter((n) => n.id !== id);
+      if (allianceNoticeEditingId === id) allianceNoticeEditingId = null;
+      renderAdmin(el);
+    })
+  );
+  // Copies exactly the saved notice text — no alliance/event metadata
+  // mixed in, per spec #11 — with the same clipboard-then-execCommand
+  // fallback already used by the Export Buff Schedule modal's Copy button.
+  el.querySelectorAll("[data-ancopy]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const n = Store.allianceNotices.find((x) => x.id === btn.dataset.ancopy);
+      if (!n) return;
+      try {
+        await navigator.clipboard.writeText(n.noticeText || "");
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = n.noticeText || "";
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      const original = btn.textContent;
+      btn.textContent = "COPIED ✓";
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    })
+  );
+}
 
 function renderAdmin(el) {
   const user = Store.currentUser;
@@ -2696,6 +2946,16 @@ function renderAdmin(el) {
   const furnaceFc = Store.furnaceFc;
   const bagSubs = Store.bagSubmissions;
 
+  // Visible tabs depend on role — an officer only ever sees the same two
+  // sections (Members, SVS Battle Sign Ups) that already rendered for them
+  // before tabs existed; every `adminOnly` tab below was already hidden
+  // from officers via its own `officerScoped ? "" : ...` guard. If a stale
+  // adminActiveTab points at a tab this user can't see (e.g. an admin
+  // demoted to officer mid-session), fall back to Members rather than
+  // rendering a blank page.
+  const visibleAdminTabs = ADMIN_TABS.filter((tb) => !tb.adminOnly || !officerScoped);
+  if (!visibleAdminTabs.some((tb) => tb.id === adminActiveTab)) adminActiveTab = "members";
+
   el.innerHTML = `
     <div class="eyebrow">// ${t("admin.eyebrow").toUpperCase()}</div>
     <h1 class="page-title" style="color:var(--accent-gold)">admin</h1>
@@ -2707,8 +2967,12 @@ function renderAdmin(el) {
         : ""
     }
 
+    <div class="admin-tabs">
+      ${visibleAdminTabs.map((tb) => `<button data-admtab="${tb.id}" class="${adminActiveTab === tb.id ? "active" : ""}">${tb.label}</button>`).join("")}
+    </div>
+
     ${
-      officerScoped
+      adminActiveTab !== "state" || officerScoped
         ? ""
         : `
     <div class="panel">
@@ -2738,7 +3002,13 @@ function renderAdmin(el) {
       <button class="btn small ${supabaseClient ? "primary" : ""}" id="admForceSync" ${supabaseClient ? "" : "disabled"}>⏫ ${t("admin.forceSync")}</button>
       <span id="admSyncMsg" style="margin-left:10px;font-size:12px;"></span>
     </div>
+    `
+    }
 
+    ${
+      adminActiveTab !== "alliances" || officerScoped
+        ? ""
+        : `
     <div class="panel">
       <div class="planner-header"><strong>${t("admin.alliancesHeading")} (${alliances.length})</strong></div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
@@ -2764,6 +3034,10 @@ function renderAdmin(el) {
     `
     }
 
+    ${
+      adminActiveTab !== "members"
+        ? ""
+        : `
     <div class="panel">
       <div class="planner-header"><strong>${t("admin.members")} (${members.length}${officerScoped ? ` / ${allMembers.length}` : ""})</strong></div>
       <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">${t("admin.membersNote")}</p>
@@ -2847,9 +3121,11 @@ function renderAdmin(el) {
         <button class="btn small primary" id="admAddMember">${t("admin.addMember")}</button>
       </div>
     </div>
+    `
+    }
 
     ${
-      officerScoped
+      adminActiveTab !== "state" || officerScoped
         ? ""
         : `
     <div class="panel">
@@ -2886,6 +3162,10 @@ function renderAdmin(el) {
     `
     }
 
+    ${
+      adminActiveTab !== "members"
+        ? ""
+        : `
     <div class="panel">
       <div class="planner-header"><strong>Bag submissions (${members.filter((m) => bagSubs[m.id]).length} / ${members.length})</strong></div>
       <p style="font-size:12px;color:var(--text-dim);margin-top:-6px;">Projected SvS points from each member's backpack submission.</p>
@@ -2931,9 +3211,43 @@ function renderAdmin(el) {
         </table>
       </div>
     </div>
+    `
+    }
 
     ${
-      officerScoped
+      adminActiveTab !== "schedule" || officerScoped
+        ? ""
+        : `
+    <div class="panel">
+      <div class="planner-header"><strong>Schedule / Events</strong></div>
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">Manage calendar items, date ranges, colors, and event scopes on the full Game Calendar page — Add/Edit/Delete, recurrence, and everything else already lives there so it isn't duplicated here.</p>
+      <button class="btn primary small" id="admOpenCalendar">Open Game Calendar</button>
+      <p style="font-size:11px;color:var(--text-faint);margin:12px 0 0;">${gameCalendarUpcomingCount()} upcoming event${gameCalendarUpcomingCount() === 1 ? "" : "s"} in the next 30 days.</p>
+    </div>
+
+    <div class="panel">
+      <div class="planner-header"><strong>Published Schedule</strong></div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${SEED_SCHEDULE_DAYS.map((day) => {
+          const isPublished = !!Store.schedulePublished[day];
+          return `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:8px 10px;">
+            <span style="font-size:12px;">${escapeHtml(day)}</span>
+            <span class="status-badge ${isPublished ? "done" : "planned"}">${isPublished ? "PUBLISHED" : "DRAFT"}</span>
+          </div>`;
+        }).join("")}
+      </div>
+      <p style="font-size:10.5px;color:var(--text-faint);margin:10px 0 0;">Publish or unpublish a day from that day's SVS Battle Prep page.</p>
+    </div>
+    `
+    }
+
+    ${adminActiveTab !== "notifications" || officerScoped ? "" : renderAllianceNotificationsPanelHtml(user)}
+
+    ${adminActiveTab !== "svs" ? "" : renderSvsSignupAdminPanelHtml(user, officerScoped)}
+
+    ${
+      adminActiveTab !== "feedback" || officerScoped
         ? ""
         : `
     <div class="panel">
@@ -2955,14 +3269,21 @@ function renderAdmin(el) {
     </div>
     `
     }
-
-    ${renderSvsSignupAdminPanelHtml(user, officerScoped)}
   `;
 
-  // These panels (state config, alliances, furnace brackets, SvS bulk
-  // actions, feedback moderation) aren't rendered at all for an officer —
-  // guard every single-element lookup with ?. so wiring them up doesn't
-  // throw when the elements simply don't exist this render.
+  // Tab bar — every panel below now only renders into the DOM when its own
+  // tab is the active one (see adminActiveTab / ADMIN_TABS above), so EVERY
+  // single-element lookup in this function has to be optional-chained
+  // (`?.`) even for elements that used to always exist — the element is
+  // simply absent whenever a different tab is showing, same as it was
+  // already absent for an officer before tabs existed.
+  el.querySelectorAll("[data-admtab]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      adminActiveTab = btn.dataset.admtab;
+      renderAdmin(el);
+    })
+  );
+  el.querySelector("#admOpenCalendar")?.addEventListener("click", () => navigate("/calendar"));
   el.querySelector("#admAddAlliance")?.addEventListener("click", () => {
     const tag = el.querySelector("#admNewAlliance").value.trim();
     if (!tag) return;
@@ -3124,7 +3445,7 @@ function renderAdmin(el) {
   el.querySelector("#admNewPin")?.addEventListener("input", (e) => {
     e.target.value = e.target.value.replace(/\D/g, "").slice(0, 4);
   });
-  el.querySelector("#admAddMember").onclick = () => {
+  el.querySelector("#admAddMember")?.addEventListener("click", () => {
     const name = el.querySelector("#admNewMember").value.trim();
     const gamerId = el.querySelector("#admNewGamerId").value.trim();
     const pin = el.querySelector("#admNewPin").value.trim();
@@ -3139,7 +3460,7 @@ function renderAdmin(el) {
     const alliance = officerScoped ? user.alliance || "" : "";
     Store.members = [...Store.members, { id: "m" + Date.now(), name, gamerId, alliance, role: "member", pin, preferredLanguage: DEFAULT_LANGUAGE_CODE }];
     renderAdmin(el);
-  };
+  });
   el.querySelector("#admMemberLangFilter")?.addEventListener("change", (e) => {
     adminMemberLangFilter = e.target.value;
     renderAdmin(el);
@@ -3231,6 +3552,7 @@ function renderAdmin(el) {
   );
 
   wireSvsSignupAdminPanel(el, user, officerScoped);
+  if (!officerScoped) wireAllianceNotificationsPanel(el, user);
 }
 
 

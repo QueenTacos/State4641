@@ -386,6 +386,15 @@ main.home-main{ max-width:1560px; }
 .tabs button{ background:none; border:none; color:var(--text-dim); padding:10px 2px; font-size:13px; letter-spacing:1px; border-bottom:2px solid transparent; }
 .tabs button.active{ color: var(--accent-active, var(--accent-purple)); border-color: var(--accent-active, var(--accent-purple)); }
 
+/* Admin page tab bar — same look as .tabs, but scrolls horizontally
+   instead of wrapping/shrinking once all 7 Admin tabs don't fit (mobile,
+   or an officer's narrower 2-tab bar still gets this for free). Labels
+   never shrink or truncate — the bar scrolls instead. */
+.admin-tabs{ display:flex; gap:18px; border-bottom:1px solid var(--border); margin-bottom:16px; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:thin; }
+.admin-tabs button{ background:none; border:none; color:var(--text-dim); padding:10px 2px; font-size:12.5px; font-weight:600; letter-spacing:.5px; white-space:nowrap; flex:none; border-bottom:2px solid transparent; }
+.admin-tabs button.active{ color:var(--accent-gold); border-color:var(--accent-gold); }
+@media (max-width:600px){ .admin-tabs{ gap:14px; } .admin-tabs button{ font-size:11.5px; } }
+
 h1.page-title{ font-size:28px; margin:2px 0 16px; }
 .eyebrow{ color:var(--text-faint); font-size:11px; letter-spacing:1px; }
 

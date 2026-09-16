@@ -488,6 +488,66 @@ function normalizeEvent(raw) {
 // this feature before per-event color/scope/date-range existed) still work.
 const SEED_GAME_EVENTS = [];
 
+// ---------------------------------------------------------------------------
+// Alliance Notifications — admin-only (NOT officer/R4, unlike most of the
+// rest of the Admin page) library of reusable notice text, each tied to one
+// alliance tag and (optionally) one Game Calendar event, meant to be
+// written once and copy-pasted into that alliance's in-game chat ahead of
+// an event. See the "Alliance Notifications" block in app.js.
+// ---------------------------------------------------------------------------
+
+// Empty by default. Shape: { id, allianceTag, eventId: string | null,
+// eventTitle (a SNAPSHOT of the event's title as of when this notice was
+// saved — kept even if the event is later renamed or deleted, so a saved
+// notice never loses its "what was this for" context; eventId is still the
+// source of truth for the live dropdown/filter whenever that event still
+// exists), noticeText, characterCount, createdAt, updatedAt, createdBy,
+// updatedBy }. Always read a notice through normalizeAllianceNotice()
+// rather than this array directly.
+const SEED_ALLIANCE_NOTICES = [];
+
+// "Custom / General Notice" isn't a real Game Calendar event — it's the
+// fallback eventId for a notice that isn't tied to any specific event.
+const ALLIANCE_NOTICE_CUSTOM_EVENT_LABEL = "Custom / General Notice";
+
+// Fills in any field missing from an older/partial notice record, and
+// recomputes characterCount from the actual saved text every time (rather
+// than trusting a possibly-stale stored number) — mirrors normalizeEvent()
+// above. Call wherever a notice is read, not when it's saved.
+function normalizeAllianceNotice(raw) {
+  if (!raw) return raw;
+  const noticeText = raw.noticeText || "";
+  return {
+    id: raw.id,
+    allianceTag: raw.allianceTag || "",
+    eventId: raw.eventId || null,
+    eventTitle: raw.eventId ? raw.eventTitle || "" : ALLIANCE_NOTICE_CUSTOM_EVENT_LABEL,
+    noticeText,
+    // Spread into an array first so multi-code-point characters (most
+    // emoji included) count as one character each, not two — plain
+    // `.length` counts UTF-16 code units, which splits a lot of emoji in
+    // half.
+    characterCount: [...noticeText].length,
+    createdAt: raw.createdAt || raw.updatedAt || Date.now(),
+    updatedAt: raw.updatedAt || raw.createdAt || Date.now(),
+    createdBy: raw.createdBy || null,
+    updatedBy: raw.updatedBy || raw.createdBy || null,
+  };
+}
+
+// Every CURRENT Game Calendar event (one entry per stored event, never one
+// per recurring occurrence), for the Alliance Notifications Event dropdown
+// and filter — always read live off Store.gameEvents, never hard-coded, so
+// an event added/renamed/removed in the calendar shows up immediately.
+// Sorted soonest-first so the dropdown roughly matches the calendar's own
+// order.
+function gameCalendarEventOptions() {
+  return Store.gameEvents
+    .map((raw) => normalizeEvent(raw))
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))
+    .map((ev) => ({ id: ev.id, title: ev.title }));
+}
+
 // Tools that don't exist yet — shown on the home page as "coming soon" so
 // there's a place for them once they're built. Add more entries here as
 // you build them out. Alliance Championship and Bear Squad Calculator used
@@ -544,6 +604,9 @@ const SUPABASE_SYNCED_DEFAULTS = {
   wos_svs_signups_open: true,
   // Game Calendar — array of event records, see SEED_GAME_EVENTS above.
   wos_game_events: SEED_GAME_EVENTS,
+  // Alliance Notifications — array of notice records, see
+  // SEED_ALLIANCE_NOTICES above.
+  wos_alliance_notices: SEED_ALLIANCE_NOTICES,
 };
 
 // ---------------------------------------------------------------------------
@@ -611,6 +674,7 @@ const Store = {
       this._set("wos_svs_signups", {});
       this._set("wos_svs_signups_open", true);
       this._set("wos_game_events", SEED_GAME_EVENTS);
+      this._set("wos_alliance_notices", SEED_ALLIANCE_NOTICES);
       this._set("wos_current_user", null);
       localStorage.setItem("wos_seeded_v2", "1");
     } else {
@@ -796,6 +860,12 @@ const Store = {
   // EVENT_TYPES above, and the "Game Calendar" block in app.js.
   get gameEvents() { return this._synced("wos_game_events", SEED_GAME_EVENTS).get(); },
   set gameEvents(v) { this._synced("wos_game_events", SEED_GAME_EVENTS).set(v); },
+
+  // Alliance Notifications — array of notice records, see
+  // SEED_ALLIANCE_NOTICES and normalizeAllianceNotice() above, and the
+  // "Alliance Notifications" block in app.js (Admin page, admin-only).
+  get allianceNotices() { return this._synced("wos_alliance_notices", SEED_ALLIANCE_NOTICES).get(); },
+  set allianceNotices(v) { this._synced("wos_alliance_notices", SEED_ALLIANCE_NOTICES).set(v); },
 
   // Always localStorage-only, Supabase or not — see the comment above
   // SUPABASE_SYNCED_DEFAULTS.
