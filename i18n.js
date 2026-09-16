@@ -94,7 +94,7 @@ const TRANSLATIONS = {
     bearCalc: { title: "Coming Soon", desc: "This tool is on the roadmap — check back soon.", plannedTool: "Planned Tool", notBuiltYet: "Not built yet — this is a placeholder route so the card has somewhere to link to." },
     admin: {
       eyebrow: "Leadership", title: "admin",
-      officerNotice: "R4 view — Members and Bag submissions only. State config, alliance tags, SvS bulk actions, furnace brackets, and feedback moderation are admin-only.",
+      officerNotice: "LEADER/R4 view — Members, SVS Battle Sign Ups, and your own Alliance Dashboard. State config, alliance tags, the shared calendar, furnace brackets, NAP Dashboard, and feedback moderation are admin-only.",
       stateConfig: "State config", ourState: "Our State #", enemyState: "Enemy State #", nextSvsDate: "Next SvS Date",
       maxFurnace: "Max Furnace Level", maxTroopBuilding: "Max Troop Building Level",
       maxTroopBuildingNote: "Separate from Max Furnace Level above — caps how high the three Training Camp Level dropdowns on SVS Alliance Signup go (e.g. furnace can be FC5 while troop-building is capped at FC4).",

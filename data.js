@@ -548,6 +548,70 @@ function gameCalendarEventOptions() {
     .map((ev) => ({ id: ev.id, title: ev.title }));
 }
 
+// ---------------------------------------------------------------------------
+// Alliance Dashboard — per-alliance LEADER/R4 management tools, all keyed
+// by allianceTag so every alliance has its own independent list. See the
+// "Alliance Dashboard" block in app.js (renderAllianceDashboardTabHtml).
+// ---------------------------------------------------------------------------
+
+// Event Times — { [allianceTag]: [{ id, title, timeText, notes }] }. A
+// simple named-time list an alliance's leadership keeps for its own
+// recurring commitments (e.g. "Bear Trap — 20:00 UTC daily") — deliberately
+// NOT another calendar; the real Game Calendar already exists for
+// date-based events (see EVENT_TYPES/normalizeEvent above). This is just a
+// short reference list, so LEADER/R4 don't need Admin's calendar tools.
+const SEED_ALLIANCE_EVENT_TIMES = {};
+
+// Discipline — { [allianceTag]: [{ id, memberId, memberName (snapshot, so
+// the entry still reads sensibly if the member is later renamed/removed),
+// note, severity, createdBy, createdByName, createdAt }] }. A lightweight
+// strike/warning log — no auto-enforcement, just a shared record LEADER/R4
+// can add to and Admin can see across every alliance.
+const SEED_ALLIANCE_DISCIPLINE = {};
+const DISCIPLINE_SEVERITIES = ["note", "warning", "strike"];
+
+// ---------------------------------------------------------------------------
+// NAP Dashboard — Non-Aggression Pact tracking, shared/state-level (not
+// per-alliance like the Alliance Dashboard above). See the "NAP Dashboard"
+// block in app.js (renderNapDashboard, renderNapAdminPanelHtml).
+// ---------------------------------------------------------------------------
+
+// Plain text (numbered lines / bullets / emoji all just typed in directly —
+// no rich-text editor, matches every other free-text field in this app).
+const SEED_NAP_RULES = "";
+
+// { [allianceTag]: { isNap: boolean, power: number, powerDisplay: string,
+// members: number } }. `power` is the sortable numeric value (see
+// parsePowerToken below) — `powerDisplay` is what admin actually typed
+// ("12.5B") and what's shown; rank is always DERIVED from `power` at
+// render time, never stored, so it can never drift out of sync with a
+// just-edited Power value.
+const SEED_NAP_ALLIANCES = {};
+
+// Fortress/Stronghold signups — one flat array each, id-based records that
+// move from "current" to "history" purely by `status` (PENDING = current;
+// OBTAINED / NOT_OBTAINED = history) — never deleted, never manually
+// moved between lists. Shape (identical for both):
+//   { id, locationName, selectedAllianceTag, signupDate, status,
+//     obtained, takenByAllianceTag, notes, completedAt }
+const SEED_NAP_FORTRESS = [];
+const SEED_NAP_STRONGHOLD = [];
+
+function normalizeNapSignup(raw) {
+  if (!raw) return raw;
+  return {
+    id: raw.id,
+    locationName: raw.locationName || "",
+    selectedAllianceTag: raw.selectedAllianceTag || "",
+    signupDate: raw.signupDate || "",
+    status: ["PENDING", "OBTAINED", "NOT_OBTAINED"].includes(raw.status) ? raw.status : "PENDING",
+    obtained: !!raw.obtained,
+    takenByAllianceTag: raw.takenByAllianceTag || null,
+    notes: raw.notes || "",
+    completedAt: raw.completedAt || null,
+  };
+}
+
 // Tools that don't exist yet — shown on the home page as "coming soon" so
 // there's a place for them once they're built. Add more entries here as
 // you build them out. Alliance Championship and Bear Squad Calculator used
@@ -565,11 +629,8 @@ const PLANNED_TOOLS = [];
 // using localStorage exactly as it always has, with zero setup required.
 // ---------------------------------------------------------------------------
 const SUPABASE_CONFIG = {
-  // State 4641's OWN, separate Supabase project — not 3929's. See
-  // SUPABASE_SETUP.md in this project for the schema this project needs
-  // (run once, in this project's SQL Editor) and the full walkthrough.
-  url: "https://xnfmwutvchaeazejlzzq.supabase.co", // Project Settings -> API -> Project URL
-  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhuZm13dXR2Y2hhZWF6ZWpsenpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMTE4NjcsImV4cCI6MjEwNDg4Nzg2N30.sf3BLgrO_eCKPzAHKi86DZMXB-aYTRFcah3ZEDljE4Q", // the "anon public" key on that same page — safe to publish, it's gated by Row Level Security, not secrecy
+  url: "https://gogoxhqfrwfmvcmwtvho.supabase.co", // e.g. "https://xxxxxxxxxxxx.supabase.co" — Project Settings -> API
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdvZ294aHFmcndmbXZjbXd0dmhvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4NzM1NDgsImV4cCI6MjEwNDQ0OTU0OH0.K4kh3AWWB1g9BMnC_0YBWpqb5KkDg7mgUOGEzRJaZjA", // the "anon public" key on that same page — safe to publish, it's gated by Row Level Security, not secrecy
 };
 
 const supabaseClient =
@@ -607,6 +668,14 @@ const SUPABASE_SYNCED_DEFAULTS = {
   // Alliance Notifications — array of notice records, see
   // SEED_ALLIANCE_NOTICES above.
   wos_alliance_notices: SEED_ALLIANCE_NOTICES,
+  // Alliance Dashboard — see the "Alliance Dashboard" block above.
+  wos_alliance_event_times: SEED_ALLIANCE_EVENT_TIMES,
+  wos_alliance_discipline: SEED_ALLIANCE_DISCIPLINE,
+  // NAP Dashboard — see the "NAP Dashboard" block above.
+  wos_nap_rules: SEED_NAP_RULES,
+  wos_nap_alliances: SEED_NAP_ALLIANCES,
+  wos_nap_fortress: SEED_NAP_FORTRESS,
+  wos_nap_stronghold: SEED_NAP_STRONGHOLD,
 };
 
 // ---------------------------------------------------------------------------
@@ -675,6 +744,12 @@ const Store = {
       this._set("wos_svs_signups_open", true);
       this._set("wos_game_events", SEED_GAME_EVENTS);
       this._set("wos_alliance_notices", SEED_ALLIANCE_NOTICES);
+      this._set("wos_alliance_event_times", SEED_ALLIANCE_EVENT_TIMES);
+      this._set("wos_alliance_discipline", SEED_ALLIANCE_DISCIPLINE);
+      this._set("wos_nap_rules", SEED_NAP_RULES);
+      this._set("wos_nap_alliances", SEED_NAP_ALLIANCES);
+      this._set("wos_nap_fortress", SEED_NAP_FORTRESS);
+      this._set("wos_nap_stronghold", SEED_NAP_STRONGHOLD);
       this._set("wos_current_user", null);
       localStorage.setItem("wos_seeded_v2", "1");
     } else {
@@ -866,6 +941,24 @@ const Store = {
   // "Alliance Notifications" block in app.js (Admin page, admin-only).
   get allianceNotices() { return this._synced("wos_alliance_notices", SEED_ALLIANCE_NOTICES).get(); },
   set allianceNotices(v) { this._synced("wos_alliance_notices", SEED_ALLIANCE_NOTICES).set(v); },
+
+  // Alliance Dashboard — see the "Alliance Dashboard" block above and
+  // renderAllianceDashboardTabHtml in app.js.
+  get allianceEventTimes() { return this._synced("wos_alliance_event_times", SEED_ALLIANCE_EVENT_TIMES).get(); },
+  set allianceEventTimes(v) { this._synced("wos_alliance_event_times", SEED_ALLIANCE_EVENT_TIMES).set(v); },
+  get allianceDiscipline() { return this._synced("wos_alliance_discipline", SEED_ALLIANCE_DISCIPLINE).get(); },
+  set allianceDiscipline(v) { this._synced("wos_alliance_discipline", SEED_ALLIANCE_DISCIPLINE).set(v); },
+
+  // NAP Dashboard — see the "NAP Dashboard" block above and
+  // renderNapDashboard / renderNapAdminPanelHtml in app.js.
+  get napRules() { return this._synced("wos_nap_rules", SEED_NAP_RULES).get(); },
+  set napRules(v) { this._synced("wos_nap_rules", SEED_NAP_RULES).set(v); },
+  get napAlliances() { return this._synced("wos_nap_alliances", SEED_NAP_ALLIANCES).get(); },
+  set napAlliances(v) { this._synced("wos_nap_alliances", SEED_NAP_ALLIANCES).set(v); },
+  get napFortress() { return this._synced("wos_nap_fortress", SEED_NAP_FORTRESS).get(); },
+  set napFortress(v) { this._synced("wos_nap_fortress", SEED_NAP_FORTRESS).set(v); },
+  get napStronghold() { return this._synced("wos_nap_stronghold", SEED_NAP_STRONGHOLD).get(); },
+  set napStronghold(v) { this._synced("wos_nap_stronghold", SEED_NAP_STRONGHOLD).set(v); },
 
   // Always localStorage-only, Supabase or not — see the comment above
   // SUPABASE_SYNCED_DEFAULTS.

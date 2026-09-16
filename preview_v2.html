@@ -1943,6 +1943,70 @@ function gameCalendarEventOptions() {
     .map((ev) => ({ id: ev.id, title: ev.title }));
 }
 
+// ---------------------------------------------------------------------------
+// Alliance Dashboard — per-alliance LEADER/R4 management tools, all keyed
+// by allianceTag so every alliance has its own independent list. See the
+// "Alliance Dashboard" block in app.js (renderAllianceDashboardTabHtml).
+// ---------------------------------------------------------------------------
+
+// Event Times — { [allianceTag]: [{ id, title, timeText, notes }] }. A
+// simple named-time list an alliance's leadership keeps for its own
+// recurring commitments (e.g. "Bear Trap — 20:00 UTC daily") — deliberately
+// NOT another calendar; the real Game Calendar already exists for
+// date-based events (see EVENT_TYPES/normalizeEvent above). This is just a
+// short reference list, so LEADER/R4 don't need Admin's calendar tools.
+const SEED_ALLIANCE_EVENT_TIMES = {};
+
+// Discipline — { [allianceTag]: [{ id, memberId, memberName (snapshot, so
+// the entry still reads sensibly if the member is later renamed/removed),
+// note, severity, createdBy, createdByName, createdAt }] }. A lightweight
+// strike/warning log — no auto-enforcement, just a shared record LEADER/R4
+// can add to and Admin can see across every alliance.
+const SEED_ALLIANCE_DISCIPLINE = {};
+const DISCIPLINE_SEVERITIES = ["note", "warning", "strike"];
+
+// ---------------------------------------------------------------------------
+// NAP Dashboard — Non-Aggression Pact tracking, shared/state-level (not
+// per-alliance like the Alliance Dashboard above). See the "NAP Dashboard"
+// block in app.js (renderNapDashboard, renderNapAdminPanelHtml).
+// ---------------------------------------------------------------------------
+
+// Plain text (numbered lines / bullets / emoji all just typed in directly —
+// no rich-text editor, matches every other free-text field in this app).
+const SEED_NAP_RULES = "";
+
+// { [allianceTag]: { isNap: boolean, power: number, powerDisplay: string,
+// members: number } }. `power` is the sortable numeric value (see
+// parsePowerToken below) — `powerDisplay` is what admin actually typed
+// ("12.5B") and what's shown; rank is always DERIVED from `power` at
+// render time, never stored, so it can never drift out of sync with a
+// just-edited Power value.
+const SEED_NAP_ALLIANCES = {};
+
+// Fortress/Stronghold signups — one flat array each, id-based records that
+// move from "current" to "history" purely by `status` (PENDING = current;
+// OBTAINED / NOT_OBTAINED = history) — never deleted, never manually
+// moved between lists. Shape (identical for both):
+//   { id, locationName, selectedAllianceTag, signupDate, status,
+//     obtained, takenByAllianceTag, notes, completedAt }
+const SEED_NAP_FORTRESS = [];
+const SEED_NAP_STRONGHOLD = [];
+
+function normalizeNapSignup(raw) {
+  if (!raw) return raw;
+  return {
+    id: raw.id,
+    locationName: raw.locationName || "",
+    selectedAllianceTag: raw.selectedAllianceTag || "",
+    signupDate: raw.signupDate || "",
+    status: ["PENDING", "OBTAINED", "NOT_OBTAINED"].includes(raw.status) ? raw.status : "PENDING",
+    obtained: !!raw.obtained,
+    takenByAllianceTag: raw.takenByAllianceTag || null,
+    notes: raw.notes || "",
+    completedAt: raw.completedAt || null,
+  };
+}
+
 // Tools that don't exist yet — shown on the home page as "coming soon" so
 // there's a place for them once they're built. Add more entries here as
 // you build them out. Alliance Championship and Bear Squad Calculator used
@@ -1960,11 +2024,8 @@ const PLANNED_TOOLS = [];
 // using localStorage exactly as it always has, with zero setup required.
 // ---------------------------------------------------------------------------
 const SUPABASE_CONFIG = {
-  // State 4641's OWN, separate Supabase project — not 3929's. See
-  // SUPABASE_SETUP.md in this project for the schema this project needs
-  // (run once, in this project's SQL Editor) and the full walkthrough.
-  url: "https://xnfmwutvchaeazejlzzq.supabase.co", // Project Settings -> API -> Project URL
-  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhuZm13dXR2Y2hhZWF6ZWpsenpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMTE4NjcsImV4cCI6MjEwNDg4Nzg2N30.sf3BLgrO_eCKPzAHKi86DZMXB-aYTRFcah3ZEDljE4Q", // the "anon public" key on that same page — safe to publish, it's gated by Row Level Security, not secrecy
+  url: "https://gogoxhqfrwfmvcmwtvho.supabase.co", // e.g. "https://xxxxxxxxxxxx.supabase.co" — Project Settings -> API
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdvZ294aHFmcndmbXZjbXd0dmhvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4NzM1NDgsImV4cCI6MjEwNDQ0OTU0OH0.K4kh3AWWB1g9BMnC_0YBWpqb5KkDg7mgUOGEzRJaZjA", // the "anon public" key on that same page — safe to publish, it's gated by Row Level Security, not secrecy
 };
 
 const supabaseClient =
@@ -2002,6 +2063,14 @@ const SUPABASE_SYNCED_DEFAULTS = {
   // Alliance Notifications — array of notice records, see
   // SEED_ALLIANCE_NOTICES above.
   wos_alliance_notices: SEED_ALLIANCE_NOTICES,
+  // Alliance Dashboard — see the "Alliance Dashboard" block above.
+  wos_alliance_event_times: SEED_ALLIANCE_EVENT_TIMES,
+  wos_alliance_discipline: SEED_ALLIANCE_DISCIPLINE,
+  // NAP Dashboard — see the "NAP Dashboard" block above.
+  wos_nap_rules: SEED_NAP_RULES,
+  wos_nap_alliances: SEED_NAP_ALLIANCES,
+  wos_nap_fortress: SEED_NAP_FORTRESS,
+  wos_nap_stronghold: SEED_NAP_STRONGHOLD,
 };
 
 // ---------------------------------------------------------------------------
@@ -2070,6 +2139,12 @@ const Store = {
       this._set("wos_svs_signups_open", true);
       this._set("wos_game_events", SEED_GAME_EVENTS);
       this._set("wos_alliance_notices", SEED_ALLIANCE_NOTICES);
+      this._set("wos_alliance_event_times", SEED_ALLIANCE_EVENT_TIMES);
+      this._set("wos_alliance_discipline", SEED_ALLIANCE_DISCIPLINE);
+      this._set("wos_nap_rules", SEED_NAP_RULES);
+      this._set("wos_nap_alliances", SEED_NAP_ALLIANCES);
+      this._set("wos_nap_fortress", SEED_NAP_FORTRESS);
+      this._set("wos_nap_stronghold", SEED_NAP_STRONGHOLD);
       this._set("wos_current_user", null);
       localStorage.setItem("wos_seeded_v2", "1");
     } else {
@@ -2261,6 +2336,24 @@ const Store = {
   // "Alliance Notifications" block in app.js (Admin page, admin-only).
   get allianceNotices() { return this._synced("wos_alliance_notices", SEED_ALLIANCE_NOTICES).get(); },
   set allianceNotices(v) { this._synced("wos_alliance_notices", SEED_ALLIANCE_NOTICES).set(v); },
+
+  // Alliance Dashboard — see the "Alliance Dashboard" block above and
+  // renderAllianceDashboardTabHtml in app.js.
+  get allianceEventTimes() { return this._synced("wos_alliance_event_times", SEED_ALLIANCE_EVENT_TIMES).get(); },
+  set allianceEventTimes(v) { this._synced("wos_alliance_event_times", SEED_ALLIANCE_EVENT_TIMES).set(v); },
+  get allianceDiscipline() { return this._synced("wos_alliance_discipline", SEED_ALLIANCE_DISCIPLINE).get(); },
+  set allianceDiscipline(v) { this._synced("wos_alliance_discipline", SEED_ALLIANCE_DISCIPLINE).set(v); },
+
+  // NAP Dashboard — see the "NAP Dashboard" block above and
+  // renderNapDashboard / renderNapAdminPanelHtml in app.js.
+  get napRules() { return this._synced("wos_nap_rules", SEED_NAP_RULES).get(); },
+  set napRules(v) { this._synced("wos_nap_rules", SEED_NAP_RULES).set(v); },
+  get napAlliances() { return this._synced("wos_nap_alliances", SEED_NAP_ALLIANCES).get(); },
+  set napAlliances(v) { this._synced("wos_nap_alliances", SEED_NAP_ALLIANCES).set(v); },
+  get napFortress() { return this._synced("wos_nap_fortress", SEED_NAP_FORTRESS).get(); },
+  set napFortress(v) { this._synced("wos_nap_fortress", SEED_NAP_FORTRESS).set(v); },
+  get napStronghold() { return this._synced("wos_nap_stronghold", SEED_NAP_STRONGHOLD).get(); },
+  set napStronghold(v) { this._synced("wos_nap_stronghold", SEED_NAP_STRONGHOLD).set(v); },
 
   // Always localStorage-only, Supabase or not — see the comment above
   // SUPABASE_SYNCED_DEFAULTS.
@@ -3086,7 +3179,7 @@ const TRANSLATIONS = {
     bearCalc: { title: "Coming Soon", desc: "This tool is on the roadmap — check back soon.", plannedTool: "Planned Tool", notBuiltYet: "Not built yet — this is a placeholder route so the card has somewhere to link to." },
     admin: {
       eyebrow: "Leadership", title: "admin",
-      officerNotice: "R4 view — Members and Bag submissions only. State config, alliance tags, SvS bulk actions, furnace brackets, and feedback moderation are admin-only.",
+      officerNotice: "LEADER/R4 view — Members, SVS Battle Sign Ups, and your own Alliance Dashboard. State config, alliance tags, the shared calendar, furnace brackets, NAP Dashboard, and feedback moderation are admin-only.",
       stateConfig: "State config", ourState: "Our State #", enemyState: "Enemy State #", nextSvsDate: "Next SvS Date",
       maxFurnace: "Max Furnace Level", maxTroopBuilding: "Max Troop Building Level",
       maxTroopBuildingNote: "Separate from Max Furnace Level above — caps how high the three Training Camp Level dropdowns on SVS Alliance Signup go (e.g. furnace can be FC5 while troop-building is capped at FC4).",
@@ -4336,6 +4429,7 @@ const ROUTES = {
   "/svs-signup": renderSvsSignupPage,
   "/bears": renderBearCalculator,
   "/calendar": renderGameCalendar,
+  "/nap": renderNapDashboard,
 };
 // wire up stub routes for planned tools
 // Named `tool`, not `t` — `t` is the global translation lookup (see
@@ -4355,12 +4449,45 @@ function navigate(path) {
 }
 
 // Display label for a stored role value. The data/permissions layer still
-// uses "officer" internally (role checks, filters, etc. all stay as-is) —
-// this only changes what shows up in the UI, matching the alliance-rank
-// naming ("R4") the game itself uses.
+// uses "officer" internally for the R4 role (role checks, filters, etc. all
+// stay as-is) — this only changes what shows up in the UI, matching the
+// alliance-rank naming ("R4") the game itself uses. "leader" is its own,
+// separate role value both internally and in the UI — see ROLE SYSTEM below.
 function roleLabel(role) {
   if (role === "officer") return "R4";
+  if (role === "leader") return "LEADER";
+  if (role === "admin") return "ADMIN";
   return role || "member";
+}
+
+// ---------------------------------------------------------------------------
+// ROLE SYSTEM — four roles: admin, leader, officer (displayed as "R4"),
+// member. Hierarchy: ADMIN > LEADER > R4 > MEMBER.
+//
+//   isAdmin(user)          — can see the Admin page at all (data.js).
+//   allianceScoped(user)   — true for LEADER or R4: full alliance-level
+//                            management, but locked to their own alliance
+//                            (Store.currentUser.alliance) everywhere the
+//                            Admin page shows data. Used exactly where the
+//                            old `officerScoped` boolean was used — LEADER
+//                            gets every power R4 already had, plus R4
+//                            management (see canManageR4Roles below).
+//   canManageR4Roles(user) — ADMIN or LEADER only. Governs the "R4
+//                            Management" block in the Alliance Dashboard
+//                            (promote Member→R4 / demote R4→Member) — R4
+//                            itself must NOT get this, even though R4 is
+//                            otherwise alliance-scoped just like LEADER.
+//   userAllianceTag(user)  — the alliance a LEADER/R4 is locked to, or null
+//                            for ADMIN (who isn't tied to one) / MEMBER.
+// ---------------------------------------------------------------------------
+function allianceScoped(user) {
+  return !!user && (user.role === "officer" || user.role === "leader");
+}
+function canManageR4Roles(user) {
+  return !!user && (user.role === "admin" || user.role === "leader");
+}
+function userAllianceTag(user) {
+  return allianceScoped(user) ? user.alliance || null : null;
 }
 
 function fmtNum(n) {
@@ -4404,6 +4531,7 @@ function renderShell() {
     <nav class="bottom-nav">
       <a href="#/" data-path="/">◆<br/>${t("nav.home")}</a>
       <a href="#/svs" data-path="/svs">▶<br/>${t("nav.svs")}</a>
+      ${napDashboardAccessible(user) ? `<a href="#/nap" data-path="/nap">☮<br/>NAP</a>` : ""}
       ${isAdmin(user) ? `<a href="#/admin" data-path="/admin">⚙<br/>${t("nav.admin")}</a>` : ""}
     </nav>
   `;
@@ -4725,7 +4853,7 @@ function renderHome(el) {
         num: "05", iconName: "shield", tag: t("home.tagRegistration").toUpperCase(), scene: "hero", bright: true,
       })}
       ${opCard({
-        href: "#/bears", color: "var(--accent-green)", title: "bear_calculator",
+        href: "#/bears", color: "var(--accent-amber)", title: "bear_calculator",
         desc: "Bear Trap hit planner — squad comp, gear thresholds, hit timing.",
         meta: "ROSTER, TROOPS & AUTO SQUAD BUILDER",
         num: "06", iconName: "paw", tag: "ANALYTICS", scene: "bear_calculator", bright: true,
@@ -5223,16 +5351,53 @@ let adminMemberLangFilter = "";
 // that was already hidden from officers before tabs existed — see each
 // `officerScoped ? "" : ...` guard below); MEMBERS and SVS BATTLE SIGN UPS
 // stay visible to officers, same as before.
+// "notifications" moved off this top-level list — Alliance Notifications
+// now lives as a sub-tab inside "alliance-dash" (see below), scoped per
+// alliance. "alliance-dash" and "nap" are new: "alliance-dash" is visible
+// to everyone who reaches the Admin page at all (ADMIN/LEADER/R4 — MEMBER
+// never gets here, isAdmin() already excludes them) since LEADER/R4 manage
+// their own alliance there; "nap" stays `adminOnly` — NAP Dashboard
+// management (rules/rankings/fortress/stronghold) is state-wide, full-Admin
+// only, same tier as State Settings.
 const ADMIN_TABS = [
   { id: "members", label: "MEMBERS" },
   { id: "alliances", label: "ALLIANCES", adminOnly: true },
   { id: "svs", label: "SVS BATTLE SIGN UPS" },
   { id: "schedule", label: "SCHEDULE / EVENTS", adminOnly: true },
-  { id: "notifications", label: "ALLIANCE NOTIFICATIONS", adminOnly: true },
+  { id: "alliance-dash", label: "ALLIANCE DASHBOARD" },
   { id: "state", label: "STATE SETTINGS", adminOnly: true },
+  { id: "nap", label: "NAP DASHBOARD", adminOnly: true },
   { id: "feedback", label: "FEEDBACK", adminOnly: true },
 ];
 let adminActiveTab = "members";
+
+// Alliance Dashboard's own inner sub-tab bar (see renderAllianceDashboardTabHtml
+// below) — module-level for the same reason as adminActiveTab above.
+const ALLIANCE_DASH_SUBTABS = [
+  { id: "overview", label: "Overview" },
+  { id: "notifications", label: "Notifications" },
+  { id: "event-times", label: "Event Times" },
+  { id: "participation", label: "Participation" },
+  { id: "performance", label: "Performance" },
+  { id: "discipline", label: "Discipline" },
+];
+let allianceDashSubTab = "overview";
+// Which alliance's dashboard a full ADMIN is currently viewing (LEADER/R4
+// are hard-locked to their own — see userAllianceTag() above). Same pattern
+// as champViewingAlliance for the Championship page.
+let allianceDashViewingAlliance = null;
+
+// NAP Dashboard's own admin-management sub-tab bar (Admin → NAP DASHBOARD
+// tab only — see renderNapAdminPanelHtml below).
+const NAP_ADMIN_SUBTABS = [
+  { id: "rules", label: "NAP Rules" },
+  { id: "alliances", label: "NAP Alliances" },
+  { id: "fortress-current", label: "Fortress Sign Ups" },
+  { id: "fortress-history", label: "Fortress History" },
+  { id: "stronghold-current", label: "Stronghold Sign Ups" },
+  { id: "stronghold-history", label: "Stronghold History" },
+];
+let napAdminSubTab = "rules";
 
 // Admin → Alliance Notifications (see renderAllianceNotificationsPanelHtml
 // below) — "" = All alliances / All events, "custom" for the event filter
@@ -7011,6 +7176,7 @@ function wireSvsSignupAdminPanel(el, user, officerScoped) {
     });
   });
 }
+
 // ---------------------------------------------------------------------------
 // Alliance Notifications — admin-only (NOT officer/R4) library of reusable
 // notice text per alliance + Game Calendar event, for copy-pasting into
@@ -7019,7 +7185,14 @@ function wireSvsSignupAdminPanel(el, user, officerScoped) {
 // wire-panel pattern as SVS Alliance Signups above (renderAdmin embeds this
 // panel's HTML directly, then calls the wire function once at the end).
 // ---------------------------------------------------------------------------
-function renderAllianceNotificationsPanelHtml(user) {
+// `lockedAlliance` (null for a full ADMIN) is the alliance tag a LEADER/R4
+// is locked to when this panel is embedded in their Alliance Dashboard —
+// it forces both the create-form's alliance and the list filter to that
+// one alliance (disabling the pickers rather than hiding them, so it's
+// still obvious which alliance this is), and every write below re-checks
+// it defensively so a LEADER/R4 can't act on another alliance's notices
+// even via a crafted request.
+function renderAllianceNotificationsPanelHtml(user, lockedAlliance) {
   const notices = Store.allianceNotices.map(normalizeAllianceNotice);
   const alliances = Store.alliances;
   const eventOptions = gameCalendarEventOptions();
@@ -7028,11 +7201,11 @@ function renderAllianceNotificationsPanelHtml(user) {
   // a Duplicate draft, or nothing (blank "Create Notice" form).
   const editing = allianceNoticeEditingId ? notices.find((n) => n.id === allianceNoticeEditingId) : null;
   const seed = editing || allianceNoticeFormDraft;
-  const formAlliance = seed?.allianceTag || "";
+  const formAlliance = lockedAlliance || seed?.allianceTag || "";
   const formEventId = seed?.eventId || "";
   const formText = seed?.noticeText || "";
 
-  const f = allianceNoticeFilters;
+  const f = { ...allianceNoticeFilters, alliance: lockedAlliance || allianceNoticeFilters.alliance };
   const filtered = notices
     .filter((n) => !f.alliance || n.allianceTag === f.alliance)
     .filter((n) => !f.event || (f.event === "custom" ? !n.eventId : n.eventId === f.event))
@@ -7041,14 +7214,14 @@ function renderAllianceNotificationsPanelHtml(user) {
   return `
     <div class="panel">
       <div class="planner-header"><strong>Alliance Notifications</strong></div>
-      <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">Write a reusable notice for an alliance and an event, then copy it straight into chat. Admin only — officers don't see this panel.</p>
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">Write a reusable notice for an alliance and an event, then copy it straight into chat.${lockedAlliance ? ` Scoped to ${escapeHtml(lockedAlliance)} — only Admin manages other alliances' notices.` : ""}</p>
 
       <div class="section-title" style="margin-top:16px;">${editing ? "EDIT NOTICE" : "CREATE NOTICE"}</div>
       <div class="field-row">
         <div class="field">
           <label>ALLIANCE</label>
-          <select id="anAlliance">
-            <option value="">Select alliance…</option>
+          <select id="anAlliance" ${lockedAlliance ? "disabled" : ""}>
+            ${lockedAlliance ? "" : `<option value="">Select alliance…</option>`}
             ${alliances.map((a) => `<option value="${escapeHtml(a)}" ${formAlliance === a ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")}
           </select>
         </div>
@@ -7079,8 +7252,8 @@ function renderAllianceNotificationsPanelHtml(user) {
         <strong>Saved Notices (${filtered.length} / ${notices.length})</strong>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
-        <select id="anFAlliance" style="background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 8px;font-size:11.5px;">
-          <option value="">All alliances</option>
+        <select id="anFAlliance" ${lockedAlliance ? "disabled" : ""} style="background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 8px;font-size:11.5px;">
+          ${lockedAlliance ? "" : `<option value="">All alliances</option>`}
           ${alliances.map((a) => `<option value="${escapeHtml(a)}" ${f.alliance === a ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")}
         </select>
         <select id="anFEvent" style="background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 8px;font-size:11.5px;">
@@ -7124,7 +7297,7 @@ function renderAllianceNotificationsPanelHtml(user) {
   `;
 }
 
-function wireAllianceNotificationsPanel(el, user) {
+function wireAllianceNotificationsPanel(el, user, lockedAlliance) {
   el.querySelector("#anText")?.addEventListener("input", (e) => {
     const countEl = el.querySelector("#anCharCount");
     if (countEl) countEl.textContent = String([...e.target.value].length);
@@ -7132,10 +7305,15 @@ function wireAllianceNotificationsPanel(el, user) {
 
   el.querySelector("#anSave")?.addEventListener("click", () => {
     const errEl = el.querySelector("#anErr");
-    const allianceTag = el.querySelector("#anAlliance").value;
+    const allianceTag = lockedAlliance || el.querySelector("#anAlliance").value;
     const eventId = el.querySelector("#anEvent").value || null;
     const noticeText = el.querySelector("#anText").value;
     if (!allianceTag) { errEl.textContent = "Pick an alliance."; return; }
+    // Defense in depth — a LEADER/R4 can't be tricked into (or accidentally
+    // end up) saving a notice under a different alliance than they're
+    // locked to, even though the alliance <select> is already disabled to
+    // lockedAlliance in the UI above.
+    if (lockedAlliance && allianceTag !== lockedAlliance) { errEl.textContent = "You can only manage notices for your own alliance."; return; }
     if (!noticeText.trim()) { errEl.textContent = "Write a notice before saving."; return; }
     errEl.textContent = "";
     const eventTitle = eventId ? gameCalendarEventOptions().find((ev) => ev.id === eventId)?.title || "" : ALLIANCE_NOTICE_CUSTOM_EVENT_LABEL;
@@ -7165,6 +7343,7 @@ function wireAllianceNotificationsPanel(el, user) {
   });
 
   el.querySelector("#anFAlliance")?.addEventListener("change", (e) => {
+    if (lockedAlliance) return; // disabled in the UI; belt-and-suspenders
     allianceNoticeFilters = { ...allianceNoticeFilters, alliance: e.target.value };
     renderAdmin(el);
   });
@@ -7175,6 +7354,8 @@ function wireAllianceNotificationsPanel(el, user) {
 
   el.querySelectorAll("[data-anedit]").forEach((btn) =>
     btn.addEventListener("click", () => {
+      const n = Store.allianceNotices.find((x) => x.id === btn.dataset.anedit);
+      if (lockedAlliance && n && n.allianceTag !== lockedAlliance) return; // can't happen via the UI — only ever rendered for this alliance's own notices — but checked anyway
       allianceNoticeEditingId = btn.dataset.anedit;
       allianceNoticeFormDraft = null;
       renderAdmin(el);
@@ -7188,6 +7369,7 @@ function wireAllianceNotificationsPanel(el, user) {
     btn.addEventListener("click", () => {
       const n = Store.allianceNotices.find((x) => x.id === btn.dataset.andup);
       if (!n) return;
+      if (lockedAlliance && n.allianceTag !== lockedAlliance) return;
       const norm = normalizeAllianceNotice(n);
       allianceNoticeEditingId = null;
       allianceNoticeFormDraft = { allianceTag: norm.allianceTag, eventId: norm.eventId, noticeText: norm.noticeText };
@@ -7196,8 +7378,10 @@ function wireAllianceNotificationsPanel(el, user) {
   );
   el.querySelectorAll("[data-andel]").forEach((btn) =>
     btn.addEventListener("click", () => {
-      if (!confirm("Delete this alliance notice?")) return;
       const id = btn.dataset.andel;
+      const n = Store.allianceNotices.find((x) => x.id === id);
+      if (lockedAlliance && n && n.allianceTag !== lockedAlliance) return;
+      if (!confirm("Delete this alliance notice?")) return;
       Store.allianceNotices = Store.allianceNotices.filter((n) => n.id !== id);
       if (allianceNoticeEditingId === id) allianceNoticeEditingId = null;
       renderAdmin(el);
@@ -7250,11 +7434,15 @@ function renderAdmin(el) {
 
   const st = Store.state;
   const allMembers = Store.members;
-  // Officers only manage their own alliance's roster here — the full
-  // admin role (not officer) still sees everyone. This scopes both the
-  // Members table and the Bag submissions table below, since both are
-  // built from `members`.
-  const officerScoped = user.role === "officer";
+  // LEADER and R4 only manage their own alliance's roster here — the full
+  // admin role still sees everyone. This scopes both the Members table and
+  // the Bag submissions table below, since both are built from `members`.
+  // Kept as the name `officerScoped` (rather than renamed everywhere) to
+  // minimize the diff — LEADER now shares every one of R4's existing
+  // alliance-scoped powers on this page (see allianceScoped() above); the
+  // one thing LEADER additionally gets — R4 role management — is gated
+  // separately by canManageR4Roles(), not by this variable.
+  const officerScoped = allianceScoped(user);
   const members = officerScoped ? allMembers.filter((m) => m.alliance === user.alliance) : allMembers;
   const alliances = Store.alliances;
   const furnaceFc = Store.furnaceFc;
@@ -7411,8 +7599,8 @@ function renderAdmin(el) {
                       ? `<span style="font-size:12px;color:var(--text-dim);" title="${t("admin.permanentRankLocked")}">${escapeHtml(roleLabel(m.role))}</span>`
                       : officerScoped
                       ? `<span style="font-size:12px;color:var(--text-dim);" title="${t("admin.onlyAdminRank")}">${escapeHtml(roleLabel(m.role))}</span>`
-                      : `<select data-mfield="role" data-mid="${m.id}" style="background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:3px;padding:5px 8px;font-size:12px;">
-                          ${["member", "officer", "admin"].map((r) => `<option value="${r}" ${m.role === r ? "selected" : ""}>${roleLabel(r)}</option>`).join("")}
+                      : `<select data-mfield="role" data-mid="${m.id}" ${m.id === user.id ? `disabled title="You can't change your own role — ask another admin."` : ""} style="background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:3px;padding:5px 8px;font-size:12px;">
+                          ${["member", "officer", "leader", "admin"].map((r) => `<option value="${r}" ${m.role === r ? "selected" : ""}>${roleLabel(r)}</option>`).join("")}
                         </select>`
                   }
                 </td>
@@ -7556,9 +7744,11 @@ function renderAdmin(el) {
     `
     }
 
-    ${adminActiveTab !== "notifications" || officerScoped ? "" : renderAllianceNotificationsPanelHtml(user)}
-
     ${adminActiveTab !== "svs" ? "" : renderSvsSignupAdminPanelHtml(user, officerScoped)}
+
+    ${adminActiveTab !== "alliance-dash" ? "" : renderAllianceDashboardTabHtml(user, officerScoped)}
+
+    ${adminActiveTab !== "nap" || officerScoped ? "" : renderNapAdminPanelHtml(user)}
 
     ${
       adminActiveTab !== "feedback" || officerScoped
@@ -7598,6 +7788,7 @@ function renderAdmin(el) {
     })
   );
   el.querySelector("#admOpenCalendar")?.addEventListener("click", () => navigate("/calendar"));
+
   el.querySelector("#admAddAlliance")?.addEventListener("click", () => {
     const tag = el.querySelector("#admNewAlliance").value.trim();
     if (!tag) return;
@@ -7688,6 +7879,20 @@ function renderAdmin(el) {
       const m = Store.members;
       const idx = m.findIndex((mm) => mm.id === id);
       if (idx === -1) return;
+      // Prevent accidental lockout: an alliance can't be left with zero
+      // LEADERs by demoting/reassigning its only one. Only checked when the
+      // role is actually changing away from "leader" — promoting someone
+      // else to leader, or any other field edit, is unaffected. The
+      // role <select> is also `disabled` on your own row (see above) so an
+      // admin can't demote themselves out from under this same way.
+      if (field === "role" && m[idx].role === "leader" && input.value !== "leader") {
+        const remainingLeaders = m.filter((mm) => mm.id !== id && mm.role === "leader" && mm.alliance === m[idx].alliance);
+        if (!remainingLeaders.length && m[idx].alliance) {
+          alert(`${m[idx].alliance || "This alliance"} would be left with no LEADER. Promote another member to LEADER first.`);
+          input.value = "leader";
+          return;
+        }
+      }
       m[idx][field] = input.value;
       Store.members = m;
       if (Store.currentUser && Store.currentUser.id === id) {
@@ -7701,10 +7906,10 @@ function renderAdmin(el) {
         router();
         return;
       }
-      // An officer editing a member's alliance can move that member out of
-      // (or into) the officer's own filtered view — re-render so the table
-      // reflects that immediately instead of showing a stale row.
-      if (field === "alliance" && Store.currentUser && Store.currentUser.role === "officer") {
+      // A LEADER/R4 editing a member's alliance can move that member out of
+      // (or into) their own filtered view — re-render so the table reflects
+      // that immediately instead of showing a stale row.
+      if (field === "alliance" && allianceScoped(Store.currentUser)) {
         renderAdmin(el);
       }
     })
@@ -7866,9 +8071,749 @@ function renderAdmin(el) {
   );
 
   wireSvsSignupAdminPanel(el, user, officerScoped);
-  if (!officerScoped) wireAllianceNotificationsPanel(el, user);
+  wireAllianceDashboardTab(el, user, officerScoped);
+  if (!officerScoped) wireNapAdminPanel(el, user);
 }
 
+// ---------------------------------------------------------------------------
+// ALLIANCE DASHBOARD — a new Admin tab, visible to ADMIN/LEADER/R4 (not
+// MEMBER — the whole Admin page already gates that). LEADER/R4 are locked
+// to their own alliance (userAllianceTag()); ADMIN picks which alliance to
+// view via a dropdown, same pattern as Alliance Championship's
+// champViewingAlliance. Everything inside is either a MOVE of an existing
+// feature (Notifications — see renderAllianceNotificationsPanelHtml above,
+// now alliance-locked) or DERIVED from existing data (Participation,
+// Performance — no new manual-entry forms, per spec); Event Times and
+// Discipline are the two genuinely new, lightweight record types (see
+// Store.allianceEventTimes / Store.allianceDiscipline in data.js).
+// ---------------------------------------------------------------------------
+
+function allianceDashboardViewingAlliance(user, officerScoped) {
+  if (officerScoped) return user.alliance || null;
+  return allianceDashViewingAlliance || Store.alliances[0] || null;
+}
+
+function renderAllianceDashboardTabHtml(user, officerScoped) {
+  const alliances = Store.alliances;
+  if (officerScoped && !user.alliance) {
+    return `
+    <div class="panel gate">
+      <p>Your account isn't assigned to an alliance yet.</p>
+      <p style="font-size:12px;">Ask an admin to set your alliance in Admin → Members — the Alliance Dashboard is scoped per alliance, so LEADER/R4 access needs an alliance tag first.</p>
+    </div>`;
+  }
+  const viewingAlliance = allianceDashboardViewingAlliance(user, officerScoped);
+  if (!viewingAlliance) {
+    return `
+    <div class="panel gate">
+      <p>No alliance tags exist yet.</p>
+      <p style="font-size:12px;">Add one in Admin → Alliances before using the Alliance Dashboard — everything here is scoped to a specific alliance.</p>
+    </div>`;
+  }
+
+  const members = Store.members.filter((m) => m.alliance === viewingAlliance);
+  const bagSubs = Store.bagSubmissions;
+  const svsSignups = Store.svsSignups;
+
+  return `
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="planner-header" style="margin-bottom:0;">
+        <strong>Alliance Dashboard</strong>
+        ${
+          officerScoped
+            ? `<span class="eyebrow">ALLIANCE · <strong style="color:var(--accent-gold);">${escapeHtml(viewingAlliance)}</strong></span>`
+            : `<div class="field" style="max-width:200px;margin:0;">
+                <select id="allianceDashSelect">
+                  ${alliances.map((a) => `<option value="${escapeHtml(a)}" ${a === viewingAlliance ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")}
+                </select>
+              </div>`
+        }
+      </div>
+    </div>
+
+    <div class="admin-tabs" style="margin-bottom:14px;">
+      ${ALLIANCE_DASH_SUBTABS.map((tb) => `<button data-adsubtab="${tb.id}" class="${allianceDashSubTab === tb.id ? "active" : ""}">${tb.label.toUpperCase()}</button>`).join("")}
+    </div>
+
+    ${allianceDashSubTab !== "overview" ? "" : renderAllianceDashOverviewHtml(user, viewingAlliance, members, bagSubs, svsSignups)}
+    ${allianceDashSubTab !== "notifications" ? "" : renderAllianceNotificationsPanelHtml(user, viewingAlliance)}
+    ${allianceDashSubTab !== "event-times" ? "" : renderAllianceDashEventTimesHtml(viewingAlliance)}
+    ${allianceDashSubTab !== "participation" ? "" : renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, svsSignups)}
+    ${allianceDashSubTab !== "performance" ? "" : renderAllianceDashPerformanceHtml(viewingAlliance, members, bagSubs)}
+    ${allianceDashSubTab !== "discipline" ? "" : renderAllianceDashDisciplineHtml(viewingAlliance)}
+  `;
+}
+
+function renderAllianceDashOverviewHtml(user, viewingAlliance, members, bagSubs, svsSignups) {
+  const submittedCount = members.filter((m) => bagSubs[m.id]).length;
+  const signedUpCount = members.filter((m) => svsSignups[m.id]).length;
+  const canManageR4 = canManageR4Roles(user);
+  // MEMBER role never reaches here (isAdmin gates the whole page), and R4
+  // itself doesn't get canManageR4Roles — only ADMIN/LEADER see this list.
+  const roster = members.filter((m) => ["member", "officer", "leader"].includes(m.role));
+
+  return `
+    <div class="stat-row" style="margin-bottom:14px;">
+      <div class="stat-card" style="--accent:var(--accent-purple);">
+        <div class="stat-icon"></div>
+        <div class="label">MEMBERS</div>
+        <div class="value">${members.length}</div>
+      </div>
+      <div class="stat-card" style="--accent:var(--accent-teal);">
+        <div class="stat-icon"></div>
+        <div class="label">BAGS SUBMITTED</div>
+        <div class="value">${submittedCount} <span style="font-size:13px;color:var(--text-faint);">/ ${members.length}</span></div>
+      </div>
+      <div class="stat-card" style="--accent:var(--accent-amber);">
+        <div class="stat-icon"></div>
+        <div class="label">SVS SIGNED UP</div>
+        <div class="value">${signedUpCount} <span style="font-size:13px;color:var(--text-faint);">/ ${members.length}</span></div>
+      </div>
+    </div>
+
+    ${
+      !canManageR4
+        ? ""
+        : `
+    <div class="panel">
+      <div class="planner-header"><strong>R4 Management</strong></div>
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">Promote a member to R4, or remove an existing R4 — for ${escapeHtml(viewingAlliance)} only. Changing who's LEADER happens in Admin → Members.</p>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>GAMER NAME</th><th>ROLE</th><th></th></tr></thead>
+          <tbody>
+            ${
+              roster
+                .map(
+                  (m) => `
+              <tr>
+                <td>${escapeHtml(m.name)}</td>
+                <td>${roleLabel(m.role)}</td>
+                <td style="text-align:right;">
+                  ${
+                    m.role === "member"
+                      ? `<button data-r4make="${m.id}" class="btn small primary">Make R4</button>`
+                      : m.role === "officer"
+                      ? `<button data-r4remove="${m.id}" class="btn small" style="color:var(--accent-red);">Remove R4</button>`
+                      : `<span style="font-size:10.5px;color:var(--text-faint);">—</span>`
+                  }
+                </td>
+              </tr>`
+                )
+                .join("") || `<tr><td colspan="3">No members yet.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>`
+    }
+  `;
+}
+
+function renderAllianceDashEventTimesHtml(viewingAlliance) {
+  const times = (Store.allianceEventTimes[viewingAlliance] || []).slice().sort((a, b) => a.title.localeCompare(b.title));
+  return `
+    <div class="panel">
+      <div class="planner-header"><strong>Event Times (${times.length})</strong></div>
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">A short reference list of this alliance's own recurring commitments — for date-based events with the full calendar, use Admin → Schedule / Events instead.</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+        ${
+          times.length
+            ? times
+                .map(
+                  (t) => `
+          <div style="display:flex;gap:10px;align-items:flex-start;background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:8px 10px;flex-wrap:wrap;">
+            <div style="flex:1 1 200px;min-width:0;">
+              <div style="font-size:12.5px;font-weight:700;">${escapeHtml(t.title)}</div>
+              <div style="font-size:11.5px;color:var(--accent-amber);">${escapeHtml(t.timeText)}</div>
+              ${t.notes ? `<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${escapeHtml(t.notes)}</div>` : ""}
+            </div>
+            <button data-etdel="${t.id}" class="btn small" style="color:var(--accent-red);">✕</button>
+          </div>`
+                )
+                .join("")
+            : `<div class="empty">No event times yet.</div>`
+        }
+      </div>
+      <div class="field-row">
+        <div class="field"><label>TITLE</label><input id="etTitle" placeholder="e.g. Bear Trap" /></div>
+        <div class="field"><label>TIME</label><input id="etTime" placeholder="e.g. 20:00 UTC daily" /></div>
+        <div class="field" style="flex:1;min-width:180px;"><label>NOTES (OPTIONAL)</label><input id="etNotes" placeholder="—" /></div>
+      </div>
+      <button class="btn small primary" id="etAdd">Add Event Time</button>
+    </div>
+  `;
+}
+
+function renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, svsSignups) {
+  const rows = members
+    .map((m) => ({ m, bag: !!bagSubs[m.id], svs: !!svsSignups[m.id] }))
+    .sort((a, b) => Number(a.bag && a.svs) - Number(b.bag && b.svs) || a.m.name.localeCompare(b.m.name));
+  const bagRate = members.length ? Math.round((rows.filter((r) => r.bag).length / members.length) * 100) : 0;
+  const svsRate = members.length ? Math.round((rows.filter((r) => r.svs).length / members.length) * 100) : 0;
+  return `
+    <div class="panel">
+      <div class="planner-header"><strong>Participation</strong></div>
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">Derived from existing bag submissions and SVS signups — nothing entered here manually.</p>
+      <div class="grid2" style="margin-bottom:14px;">
+        <div class="summary-row"><span class="k">Bag submission rate</span><span class="v">${bagRate}%</span></div>
+        <div class="summary-row"><span class="k">SVS signup rate</span><span class="v">${svsRate}%</span></div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>MEMBER</th><th>BAG</th><th>SVS SIGNUP</th></tr></thead>
+          <tbody>
+            ${
+              rows
+                .map(
+                  (r) => `
+              <tr>
+                <td>${escapeHtml(r.m.name)}</td>
+                <td>${r.bag ? `<span class="status-badge done">SUBMITTED</span>` : `<span class="status-badge open">MISSING</span>`}</td>
+                <td>${r.svs ? `<span class="status-badge done">SIGNED UP</span>` : `<span class="status-badge open">MISSING</span>`}</td>
+              </tr>`
+                )
+                .join("") || `<tr><td colspan="3">No members yet.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderAllianceDashPerformanceHtml(viewingAlliance, members, bagSubs) {
+  const ranked = members
+    .map((m) => {
+      const sub = bagSubs[m.id];
+      const total = sub ? computeBagPoints(sub.values).total : 0;
+      return { m, total, hasSub: !!sub };
+    })
+    .sort((a, b) => b.total - a.total);
+  return `
+    <div class="panel">
+      <div class="planner-header"><strong>Performance</strong></div>
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">Ranked by projected SvS points from each member's submitted bag — same numbers as Admin → Members → Bag submissions.</p>
+      <div class="rank-list">
+        ${
+          ranked
+            .map(
+              (r, i) => `
+          <div class="rank-item">
+            <div class="left">
+              <span class="name">#${i + 1} ${escapeHtml(r.m.name)}</span>
+              <span class="desc">${r.hasSub ? "Bag submitted" : "No bag submission yet"}</span>
+            </div>
+            <span class="score">${fmtNum(r.total)}</span>
+          </div>`
+            )
+            .join("") || `<div class="empty">No members yet.</div>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderAllianceDashDisciplineHtml(viewingAlliance) {
+  const log = (Store.allianceDiscipline[viewingAlliance] || []).slice().sort((a, b) => b.createdAt - a.createdAt);
+  const members = Store.members.filter((m) => m.alliance === viewingAlliance);
+  return `
+    <div class="panel">
+      <div class="planner-header"><strong>Discipline (${log.length})</strong></div>
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">A shared strike/warning log — no auto-enforcement, just a record LEADER/R4/Admin can see and add to.</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+        ${
+          log.length
+            ? log
+                .map(
+                  (e) => `
+          <div style="display:flex;gap:10px;align-items:flex-start;background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:8px 10px;flex-wrap:wrap;">
+            <div style="flex:1 1 220px;min-width:0;">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;">
+                <strong style="font-size:12.5px;">${escapeHtml(e.memberName)}</strong>
+                <span class="status-badge ${e.severity === "strike" ? "open" : e.severity === "warning" ? "planned" : "done"}">${e.severity.toUpperCase()}</span>
+              </div>
+              <div style="font-size:12px;color:var(--text-dim);">${escapeHtml(e.note)}</div>
+              <div style="font-size:10.5px;color:var(--text-faint);margin-top:2px;">${escapeHtml(e.createdByName || "—")} · ${new Date(e.createdAt).toLocaleDateString()}</div>
+            </div>
+            <button data-discdel="${e.id}" class="btn small" style="color:var(--accent-red);">✕</button>
+          </div>`
+                )
+                .join("")
+            : `<div class="empty">No discipline entries yet.</div>`
+        }
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>MEMBER</label>
+          <select id="discMember">
+            <option value="">Select member…</option>
+            ${members.map((m) => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>SEVERITY</label>
+          <select id="discSeverity">
+            ${DISCIPLINE_SEVERITIES.map((s) => `<option value="${s}">${s.toUpperCase()}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field" style="flex:1;min-width:220px;"><label>NOTE</label><input id="discNote" placeholder="What happened…" /></div>
+      </div>
+      <button class="btn small primary" id="discAdd">Add Entry</button>
+    </div>
+  `;
+}
+
+function wireAllianceDashboardTab(el, user, officerScoped) {
+  el.querySelector("#allianceDashSelect")?.addEventListener("change", (e) => {
+    allianceDashViewingAlliance = e.target.value;
+    renderAdmin(el);
+  });
+  el.querySelectorAll("[data-adsubtab]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      allianceDashSubTab = btn.dataset.adsubtab;
+      renderAdmin(el);
+    })
+  );
+
+  const viewingAlliance = allianceDashboardViewingAlliance(user, officerScoped);
+
+  // R4 Management — only reachable in the DOM for ADMIN/LEADER (see
+  // canManageR4Roles gate in renderAllianceDashOverviewHtml), but every
+  // handler re-checks the member's current alliance against
+  // viewingAlliance anyway, so a LEADER can't act outside their own.
+  el.querySelectorAll("[data-r4make]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.r4make;
+      const m = Store.members;
+      const idx = m.findIndex((mm) => mm.id === id);
+      if (idx === -1 || m[idx].alliance !== viewingAlliance || m[idx].role !== "member") return;
+      m[idx].role = "officer";
+      Store.members = m;
+      renderAdmin(el);
+    })
+  );
+  el.querySelectorAll("[data-r4remove]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.r4remove;
+      const m = Store.members;
+      const idx = m.findIndex((mm) => mm.id === id);
+      if (idx === -1 || m[idx].alliance !== viewingAlliance || m[idx].role !== "officer") return;
+      m[idx].role = "member";
+      Store.members = m;
+      renderAdmin(el);
+    })
+  );
+
+  // Event Times
+  el.querySelector("#etAdd")?.addEventListener("click", () => {
+    const title = el.querySelector("#etTitle").value.trim();
+    const timeText = el.querySelector("#etTime").value.trim();
+    const notes = el.querySelector("#etNotes").value.trim();
+    if (!title || !timeText || !viewingAlliance) return;
+    const all = Store.allianceEventTimes;
+    const list = all[viewingAlliance] || [];
+    all[viewingAlliance] = [...list, { id: "et" + Date.now(), title, timeText, notes }];
+    Store.allianceEventTimes = all;
+    renderAdmin(el);
+  });
+  el.querySelectorAll("[data-etdel]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (!viewingAlliance) return;
+      const all = Store.allianceEventTimes;
+      all[viewingAlliance] = (all[viewingAlliance] || []).filter((t) => t.id !== btn.dataset.etdel);
+      Store.allianceEventTimes = all;
+      renderAdmin(el);
+    })
+  );
+
+  // Discipline
+  el.querySelector("#discAdd")?.addEventListener("click", () => {
+    const memberId = el.querySelector("#discMember").value;
+    const severity = el.querySelector("#discSeverity").value;
+    const note = el.querySelector("#discNote").value.trim();
+    const member = Store.members.find((m) => m.id === memberId);
+    if (!memberId || !member || !note || !viewingAlliance) return;
+    const all = Store.allianceDiscipline;
+    const list = all[viewingAlliance] || [];
+    all[viewingAlliance] = [
+      ...list,
+      {
+        id: "disc" + Date.now(),
+        memberId,
+        memberName: member.name,
+        note,
+        severity: DISCIPLINE_SEVERITIES.includes(severity) ? severity : "note",
+        createdBy: user?.id || null,
+        createdByName: user?.name || "",
+        createdAt: Date.now(),
+      },
+    ];
+    Store.allianceDiscipline = all;
+    renderAdmin(el);
+  });
+  el.querySelectorAll("[data-discdel]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (!viewingAlliance) return;
+      const all = Store.allianceDiscipline;
+      all[viewingAlliance] = (all[viewingAlliance] || []).filter((e) => e.id !== btn.dataset.discdel);
+      Store.allianceDiscipline = all;
+      renderAdmin(el);
+    })
+  );
+
+  if (allianceDashSubTab === "notifications") wireAllianceNotificationsPanel(el, user, viewingAlliance);
+}
+
+// ---------------------------------------------------------------------------
+// NAP DASHBOARD — state-level (not per-alliance), tracking who's in the
+// Non-Aggression Pact, current rankings by Power, and Fortress/Stronghold
+// signups. Two halves: renderNapAdminPanelHtml (Admin → NAP DASHBOARD tab,
+// full-admin-only, all editing happens here) and renderNapDashboard (the
+// public "/nap" viewer route — read-only for everyone who can see it,
+// including LEADER/R4/MEMBER of a NAP-flagged alliance; see
+// napDashboardAccessible below). See the "NAP Dashboard" block in data.js
+// for the Store fields and normalizeNapSignup().
+// ---------------------------------------------------------------------------
+
+function napDashboardAccessible(user) {
+  if (!user) return false;
+  if (isAdmin(user)) return true;
+  const tag = user.alliance;
+  return !!(tag && Store.napAlliances[tag]?.isNap);
+}
+
+// Rank is always DERIVED from `power` here — never stored — so editing
+// Power can never leave a stale rank behind. Only alliances flagged
+// isNap:true are included, and only alliances that still exist in
+// Store.alliances (an alliance removed from Admin → Alliances silently
+// drops out of the ranking rather than showing a dangling tag).
+function napRankedAlliances() {
+  const napMap = Store.napAlliances;
+  return Store.alliances
+    .filter((a) => napMap[a]?.isNap)
+    .map((a) => ({ tag: a, ...napMap[a] }))
+    .sort((a, b) => (b.power || 0) - (a.power || 0));
+}
+
+function renderNapAdminPanelHtml(user) {
+  const alliances = Store.alliances;
+  const napMap = Store.napAlliances;
+  const ranked = napRankedAlliances();
+
+  return `
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="planner-header" style="margin-bottom:0;"><strong>NAP Dashboard Management</strong></div>
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">State-wide — Admin only. The public viewer page is at <a href="#/nap" style="color:var(--accent-gold);">/nap</a>, visible to Admin and to any member of an alliance flagged NAP below.</p>
+    </div>
+
+    <div class="admin-tabs" style="margin-bottom:14px;">
+      ${NAP_ADMIN_SUBTABS.map((tb) => `<button data-napsubtab="${tb.id}" class="${napAdminSubTab === tb.id ? "active" : ""}">${tb.label.toUpperCase()}</button>`).join("")}
+    </div>
+
+    ${
+      napAdminSubTab !== "rules"
+        ? ""
+        : `
+    <div class="panel">
+      <div class="planner-header"><strong>Current NAP Rules</strong></div>
+      <p style="font-size:11px;color:var(--text-dim);margin-top:-6px;">Plain text — numbered lines, bullets, line breaks, and emoji are all fine as typed.</p>
+      <textarea id="napRulesText" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:10px;font-size:13px;min-height:180px;resize:vertical;">${escapeHtml(Store.napRules)}</textarea>
+      <button class="btn small primary" id="napRulesSave" style="margin-top:10px;">Save Rules</button>
+      <span id="napRulesMsg" style="margin-left:10px;font-size:12px;color:var(--accent-green);"></span>
+    </div>`
+    }
+
+    ${
+      napAdminSubTab !== "alliances"
+        ? ""
+        : `
+    <div class="panel">
+      <div class="planner-header"><strong>NAP Alliances</strong></div>
+      <p style="font-size:11px;color:var(--text-dim);margin-top:-6px;">Rank is calculated automatically from Power — highest Power is Rank 1. Power accepts "12.5B", "850M", or a plain number.</p>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>RANK</th><th>TAG</th><th>NAP</th><th>POWER</th><th>MEMBERS</th></tr></thead>
+          <tbody>
+            ${
+              alliances
+                .map((a) => {
+                  const rec = napMap[a] || { isNap: false, power: 0, powerDisplay: "", members: 0 };
+                  const rank = rec.isNap ? ranked.findIndex((r) => r.tag === a) + 1 : null;
+                  return `
+              <tr>
+                <td>${rank ? "#" + rank : "—"}</td>
+                <td>${allianceBadgeHtml(a)} ${escapeHtml(a)}</td>
+                <td><input type="checkbox" data-napflag="${escapeHtml(a)}" ${rec.isNap ? "checked" : ""} /></td>
+                <td><input data-nappower="${escapeHtml(a)}" value="${escapeHtml(rec.powerDisplay || "")}" placeholder="e.g. 12.5B" style="width:100px;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:3px;padding:5px 8px;font-size:12px;" /></td>
+                <td><input data-napmembers="${escapeHtml(a)}" type="number" min="0" value="${rec.members || ""}" style="width:80px;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:3px;padding:5px 8px;font-size:12px;" /></td>
+              </tr>`;
+                })
+                .join("") || `<tr><td colspan="5">No alliances yet — add one in Admin → Alliances first.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>`
+    }
+
+    ${napAdminSubTab !== "fortress-current" ? "" : renderNapAdminSignupSectionHtml("FORTRESS", "PENDING", alliances)}
+    ${napAdminSubTab !== "fortress-history" ? "" : renderNapAdminSignupSectionHtml("FORTRESS", "HISTORY", alliances)}
+    ${napAdminSubTab !== "stronghold-current" ? "" : renderNapAdminSignupSectionHtml("STRONGHOLD", "PENDING", alliances)}
+    ${napAdminSubTab !== "stronghold-history" ? "" : renderNapAdminSignupSectionHtml("STRONGHOLD", "HISTORY", alliances)}
+  `;
+}
+
+// Shared by Fortress and Stronghold — identical structure, two completely
+// separate Store arrays (napFortress / napStronghold), never mixed in one
+// list. `statusView` is "PENDING" (current) or "HISTORY" (OBTAINED /
+// NOT_OBTAINED) — which list a record shows in is driven purely by its own
+// `status`, never a manual move.
+function renderNapAdminSignupSectionHtml(type, statusView, alliances) {
+  const storeKey = type === "FORTRESS" ? "napFortress" : "napStronghold";
+  const all = Store[storeKey].map(normalizeNapSignup);
+  const rows = statusView === "PENDING" ? all.filter((r) => r.status === "PENDING") : all.filter((r) => r.status !== "PENDING");
+  const label = type === "FORTRESS" ? "Fortress" : "Stronghold";
+  const prefix = type === "FORTRESS" ? "fort" : "sh";
+
+  return `
+    <div class="panel">
+      <div class="planner-header"><strong>${statusView === "PENDING" ? `Current ${label} Sign Ups` : `Previous ${label} Sign Ups`} (${rows.length})</strong></div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:${statusView === "PENDING" ? "12px" : "0"};">
+        ${
+          rows.length
+            ? rows
+                .map(
+                  (r) => `
+          <div style="background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:10px 12px;">
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+              <strong style="font-size:12.5px;">${escapeHtml(r.locationName)}</strong>
+              <span class="status-badge ${r.status === "OBTAINED" ? "done" : r.status === "NOT_OBTAINED" ? "open" : "planned"}">${r.status.replace("_", " ")}</span>
+              ${allianceBadgeHtml(r.selectedAllianceTag)} <span style="font-size:11.5px;color:var(--text-dim);">${escapeHtml(r.selectedAllianceTag)}</span>
+              <span style="font-size:10.5px;color:var(--text-faint);">signed up ${escapeHtml(r.signupDate)}</span>
+            </div>
+            ${
+              statusView === "PENDING"
+                ? `
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button data-napobtained="${r.id}" data-nptype="${storeKey}" class="btn small primary">Obtained ✓</button>
+              <select data-napnotobtained="${r.id}" data-nptype="${storeKey}" style="background:var(--panel);border:1px solid var(--border);color:var(--text);border-radius:3px;padding:5px 8px;font-size:11.5px;">
+                <option value="">Not obtained — taken by…</option>
+                ${alliances.filter((a) => a !== r.selectedAllianceTag).map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join("")}
+              </select>
+            </div>`
+                : `
+            <div style="font-size:11.5px;color:var(--text-dim);">
+              ${r.status === "NOT_OBTAINED" && r.takenByAllianceTag ? `Taken by <strong>${escapeHtml(r.takenByAllianceTag)}</strong> · ` : ""}
+              ${r.notes ? escapeHtml(r.notes) + " · " : ""}
+              completed ${r.completedAt ? new Date(r.completedAt).toLocaleDateString() : "—"}
+            </div>`
+            }
+          </div>`
+                )
+                .join("")
+            : `<div class="empty">${statusView === "PENDING" ? `No current ${label.toLowerCase()} sign ups.` : `No ${label.toLowerCase()} history yet.`}</div>`
+        }
+      </div>
+      ${
+        statusView !== "PENDING"
+          ? ""
+          : `
+      <div class="field-row">
+        <div class="field"><label>${label.toUpperCase()}</label><input id="${prefix}Location" placeholder="e.g. ${label} 2" /></div>
+        <div class="field">
+          <label>SELECTED ALLIANCE</label>
+          <select id="${prefix}Alliance">
+            <option value="">Select alliance…</option>
+            ${alliances.map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field"><label>SIGNUP DATE</label><input id="${prefix}Date" type="date" /></div>
+      </div>
+      <button class="btn small primary" id="${prefix}Add">Add ${label} Sign Up</button>`
+      }
+    </div>
+  `;
+}
+
+function wireNapAdminPanel(el, user) {
+  el.querySelectorAll("[data-napsubtab]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      napAdminSubTab = btn.dataset.napsubtab;
+      renderAdmin(el);
+    })
+  );
+
+  el.querySelector("#napRulesSave")?.addEventListener("click", () => {
+    Store.napRules = el.querySelector("#napRulesText").value;
+    const msg = el.querySelector("#napRulesMsg");
+    if (msg) msg.textContent = "Saved.";
+  });
+
+  el.querySelectorAll("[data-napflag]").forEach((cb) =>
+    cb.addEventListener("change", () => {
+      const tag = cb.dataset.napflag;
+      const all = Store.napAlliances;
+      all[tag] = { ...(all[tag] || { power: 0, powerDisplay: "", members: 0 }), isNap: cb.checked };
+      Store.napAlliances = all;
+      renderAdmin(el);
+    })
+  );
+  el.querySelectorAll("[data-nappower]").forEach((inp) =>
+    inp.addEventListener("change", () => {
+      const tag = inp.dataset.nappower;
+      const parsed = parsePowerToken(inp.value);
+      const all = Store.napAlliances;
+      all[tag] = { ...(all[tag] || { isNap: false, members: 0 }), powerDisplay: inp.value.trim(), power: parsed == null ? 0 : parsed };
+      Store.napAlliances = all;
+      renderAdmin(el);
+    })
+  );
+  el.querySelectorAll("[data-napmembers]").forEach((inp) =>
+    inp.addEventListener("change", () => {
+      const tag = inp.dataset.napmembers;
+      const all = Store.napAlliances;
+      all[tag] = { ...(all[tag] || { isNap: false, power: 0, powerDisplay: "" }), members: Number(inp.value) || 0 };
+      Store.napAlliances = all;
+      renderAdmin(el);
+    })
+  );
+
+  // Fortress / Stronghold — add, obtain, not-obtained. Shared handlers
+  // (data-nptype carries which Store array — "napFortress"/"napStronghold").
+  ["fort", "sh"].forEach((prefix) => {
+    const storeKey = prefix === "fort" ? "napFortress" : "napStronghold";
+    el.querySelector(`#${prefix}Add`)?.addEventListener("click", () => {
+      const locationName = el.querySelector(`#${prefix}Location`).value.trim();
+      const selectedAllianceTag = el.querySelector(`#${prefix}Alliance`).value;
+      const signupDate = el.querySelector(`#${prefix}Date`).value;
+      if (!locationName || !selectedAllianceTag) return;
+      const list = Store[storeKey];
+      Store[storeKey] = [
+        ...list,
+        { id: prefix + Date.now(), locationName, selectedAllianceTag, signupDate, status: "PENDING", obtained: false, takenByAllianceTag: null, notes: "", completedAt: null },
+      ];
+      renderAdmin(el);
+    });
+  });
+  el.querySelectorAll("[data-napobtained]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const storeKey = btn.dataset.nptype;
+      const list = Store[storeKey];
+      const idx = list.findIndex((r) => r.id === btn.dataset.napobtained);
+      if (idx === -1) return;
+      list[idx] = { ...list[idx], status: "OBTAINED", obtained: true, takenByAllianceTag: null, completedAt: Date.now() };
+      Store[storeKey] = list;
+      renderAdmin(el);
+    })
+  );
+  el.querySelectorAll("[data-napnotobtained]").forEach((sel) =>
+    sel.addEventListener("change", () => {
+      if (!sel.value) return;
+      const storeKey = sel.dataset.nptype;
+      const list = Store[storeKey];
+      const idx = list.findIndex((r) => r.id === sel.dataset.napnotobtained);
+      if (idx === -1) return;
+      list[idx] = { ...list[idx], status: "NOT_OBTAINED", obtained: false, takenByAllianceTag: sel.value, completedAt: Date.now() };
+      Store[storeKey] = list;
+      renderAdmin(el);
+    })
+  );
+}
+
+// Public "/nap" viewer — read-only. Order per spec: rules, rankings,
+// current fortress, current stronghold, previous fortress, previous
+// stronghold (history sections collapsible via <details>).
+function renderNapDashboard(el) {
+  const user = Store.currentUser;
+  if (!napDashboardAccessible(user)) {
+    el.innerHTML = `
+      <div class="eyebrow">// NAP DASHBOARD</div>
+      <h1 class="page-title" style="color:var(--accent-gold)">nap dashboard</h1>
+      <div class="panel gate">
+        <p>${user ? "This page is only visible to alliances currently included in the Non-Aggression Pact." : t("admin.leadershipOnly")}</p>
+        ${user ? "" : `<button class="btn primary" id="gateSignIn">${t("common.signIn")}</button>`}
+      </div>
+    `;
+    el.querySelector("#gateSignIn")?.addEventListener("click", openSignIn);
+    return;
+  }
+
+  const ranked = napRankedAlliances();
+  const fortress = Store.napFortress.map(normalizeNapSignup);
+  const stronghold = Store.napStronghold.map(normalizeNapSignup);
+  const renderSignupRow = (r) => `
+    <div style="background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:10px 12px;margin-bottom:8px;">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+        <strong style="font-size:12.5px;">${escapeHtml(r.locationName)}</strong>
+        <span class="status-badge ${r.status === "OBTAINED" ? "done" : r.status === "NOT_OBTAINED" ? "open" : "planned"}">${r.status.replace("_", " ")}</span>
+        ${allianceBadgeHtml(r.selectedAllianceTag)} <span style="font-size:11.5px;color:var(--text-dim);">${escapeHtml(r.selectedAllianceTag)}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-faint);">
+        signed up ${escapeHtml(r.signupDate) || "—"}
+        ${r.status === "NOT_OBTAINED" && r.takenByAllianceTag ? ` · taken by <strong style="color:var(--text-dim);">${escapeHtml(r.takenByAllianceTag)}</strong>` : ""}
+        ${r.notes ? ` · ${escapeHtml(r.notes)}` : ""}
+      </div>
+    </div>`;
+
+  el.innerHTML = `
+    <div class="eyebrow">// NAP DASHBOARD</div>
+    <h1 class="page-title" style="color:var(--accent-gold)">nap dashboard</h1>
+
+    <div class="panel">
+      <div class="planner-header"><strong>Current NAP Rules</strong></div>
+      <div style="font-size:12.5px;color:var(--text-dim);white-space:pre-wrap;overflow-wrap:anywhere;">${Store.napRules ? escapeHtml(Store.napRules) : `<span class="empty" style="padding:0;">No rules published yet.</span>`}</div>
+    </div>
+
+    <div class="panel">
+      <div class="planner-header"><strong>NAP Alliance Rankings</strong></div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>RANK</th><th>ALLIANCE</th><th>POWER</th><th>MEMBERS</th></tr></thead>
+          <tbody>
+            ${
+              ranked
+                .map(
+                  (r, i) => `
+              <tr>
+                <td>#${i + 1}</td>
+                <td>${allianceBadgeHtml(r.tag)} ${escapeHtml(r.tag)}</td>
+                <td>${escapeHtml(r.powerDisplay || fmtNum(r.power))}</td>
+                <td>${r.members || 0}</td>
+              </tr>`
+                )
+                .join("") || `<tr><td colspan="4">No NAP alliances configured yet.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="planner-header"><strong>Current Fortress Sign Ups</strong></div>
+      ${fortress.filter((r) => r.status === "PENDING").map(renderSignupRow).join("") || `<div class="empty">No current fortress sign ups.</div>`}
+    </div>
+
+    <div class="panel">
+      <div class="planner-header"><strong>Current Stronghold Sign Ups</strong></div>
+      ${stronghold.filter((r) => r.status === "PENDING").map(renderSignupRow).join("") || `<div class="empty">No current stronghold sign ups.</div>`}
+    </div>
+
+    <details class="panel">
+      <summary style="cursor:pointer;font-weight:700;font-size:13px;">Previous Fortress Sign Ups</summary>
+      <div style="margin-top:10px;">
+        ${fortress.filter((r) => r.status !== "PENDING").map(renderSignupRow).join("") || `<div class="empty">No fortress history yet.</div>`}
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary style="cursor:pointer;font-weight:700;font-size:13px;">Previous Stronghold Sign Ups</summary>
+      <div style="margin-top:10px;">
+        ${stronghold.filter((r) => r.status !== "PENDING").map(renderSignupRow).join("") || `<div class="empty">No stronghold history yet.</div>`}
+      </div>
+    </details>
+  `;
+}
 
 // ---------------------------------------------------------------------------
 // ALLIANCE CHAMPIONSHIP — lane planner
@@ -7929,12 +8874,12 @@ let champDuplicatesRemoved = 0;
 // list of configured alliance tags (Store.alliances).
 function championshipAccessibleAlliance(user) {
   if (!user) return null;
-  if (user.role === "officer") return user.alliance || null;
+  if (allianceScoped(user)) return user.alliance || null;
   if (user.role === "admin") return champViewingAlliance || Store.alliances[0] || null;
   return null;
 }
 function canAccessChampionship(user) {
-  return !!user && (user.role === "admin" || user.role === "officer");
+  return !!user && (user.role === "admin" || allianceScoped(user));
 }
 
 function ensureChampWorking(allianceTag) {
@@ -8079,21 +9024,43 @@ function championshipLanePanelHtml(key, isOverflow, w, total) {
   `;
 }
 
+// ---------------------------------------------------------------------------
+// Bear Squad Calculator — embedded third-party tool (github.com/QueenTacos/
+// bear-calculator), mounted here as a real React app rather than rebuilt in
+// this dashboard's own vanilla-JS style. bear-calculator.js (loaded in
+// index.html with type="text/babel", right before data.js) defines the
+// global BearSquadCalculatorApp component; React/ReactDOM/Babel standalone
+// are loaded from a CDN in that same block. The calculator keeps its own
+// state entirely in this browser's localStorage under its own "bsc_*" keys
+// (untouched by anything else in Store) — nothing here reads or writes it,
+// this function only mounts/unmounts the React tree into the route's panel.
+//
+// No sign-in gate: the calculator itself has none (it's not tied to a
+// specific member account, just whatever hero/troop data is in this
+// browser), so it's open the same way the "coming soon" stub used to be.
 let bearCalcRoot = null;
 function renderBearCalculator(el) {
   el.innerHTML = `
     <div class="eyebrow">// ANALYTICS</div>
-    <h1 class="page-title" style="color:var(--accent-green)">bear_calculator</h1>
+    <h1 class="page-title" style="color:var(--accent-amber)">bear_calculator</h1>
     <div class="panel" style="padding:0;overflow:hidden;">
       <div id="bearCalcMount"></div>
     </div>
   `;
   const mount = el.querySelector("#bearCalcMount");
   if (typeof React === "undefined" || typeof ReactDOM === "undefined" || typeof BearSquadCalculatorApp === "undefined") {
+    // Babel standalone transforms bear-calculator.js asynchronously (it
+    // fetches the file itself, separately from the browser's normal script
+    // loading), so on a very slow connection this route could in principle
+    // be opened before it's ready. Retry briefly rather than showing a
+    // dead page.
     mount.innerHTML = `<div class="empty">Loading Bear Squad Calculator…</div>`;
     setTimeout(() => { if (currentPath() === "/bears") renderBearCalculator(el); }, 400);
     return;
   }
+  // router() already cleared the previous page's DOM (innerHTML = ""), so
+  // any prior root's node is already gone — always mount a fresh root
+  // rather than reusing bearCalcRoot from a previous visit to this route.
   bearCalcRoot = ReactDOM.createRoot(mount);
   bearCalcRoot.render(React.createElement(BearSquadCalculatorApp));
 }
@@ -8522,13 +9489,13 @@ function renderChampionship(el) {
       <div class="eyebrow">// ${t("championship.eyebrow").toUpperCase()}</div>
       <h1 class="page-title" style="color:var(--accent-green)">championship</h1>
       <div class="panel gate">
-        <p>This tool is for alliance leadership — Admin or R4.</p>
+        <p>This tool is for alliance leadership — Admin, Leader, or R4.</p>
         <p style="font-size:12px;">Signed in as ${escapeHtml(user.name)} (${roleLabel(user.role)}) — ask an admin for access if you need to plan Championship lanes.</p>
       </div>
     `;
     return;
   }
-  if (user.role === "officer" && !user.alliance) {
+  if (allianceScoped(user) && !user.alliance) {
     el.innerHTML = `
       <div class="eyebrow">// ${t("championship.eyebrow").toUpperCase()}</div>
       <h1 class="page-title" style="color:var(--accent-green)">championship</h1>
