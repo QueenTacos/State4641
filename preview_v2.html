@@ -8244,7 +8244,7 @@ function renderAllianceDashEventTimesHtml(viewingAlliance) {
       </div>
       <div class="field-row">
         <div class="field"><label>TITLE</label><input id="etTitle" placeholder="e.g. Bear Trap" /></div>
-        <div class="field"><label>TIME</label><input id="etTime" placeholder="e.g. 20:00 UTC daily" /></div>
+        <div class="field"><label>TIME (24-HOUR / MILITARY, UTC)</label><input id="etTime" placeholder="e.g. 20:00 UTC daily" /></div>
         <div class="field" style="flex:1;min-width:180px;"><label>NOTES (OPTIONAL)</label><input id="etNotes" placeholder="—" /></div>
       </div>
       <button class="btn small primary" id="etAdd">Add Event Time</button>
@@ -9391,8 +9391,8 @@ function openEventModal(pageEl, existingRaw, presetDate) {
         </div>
       </div>
       <div class="field">
-        <label>TIME (OPTIONAL, SERVER/UTC)</label>
-        <input id="evTime" type="time" value="${existing?.time || ""}" />
+        <label>TIME (OPTIONAL, 24-HOUR / MILITARY, UTC)</label>
+        <input id="evTime" type="time" step="60" lang="en-GB" value="${existing?.time || ""}" />
       </div>
       <div class="field">
         <label>EVENT COLOR</label>
