@@ -7624,7 +7624,7 @@ function renderAdmin(el) {
     <h1 class="page-title" style="color:var(--accent-gold)">admin</h1>
     ${
       officerScoped
-        ? `<div class="panel" style="background:rgba(248,106,56,.1);border-color:var(--accent-amber);">
+        ? `<div class="panel" style="background:rgba(255,176,32,.1);border-color:var(--accent-amber);">
             <span style="font-size:12px;color:var(--accent-amber);">✎ ${t("admin.officerNotice")}</span>
           </div>`
         : ""
@@ -9229,10 +9229,13 @@ function renderNapAdminSignupSectionHtml(type, statusView, alliances) {
               </select>
             </div>`
                 : `
-            <div style="font-size:11.5px;color:var(--text-dim);">
-              ${r.status === "NOT_OBTAINED" && r.takenByAllianceTag ? `Taken by <strong>${escapeHtml(r.takenByAllianceTag)}</strong> · ` : ""}
-              ${r.notes ? escapeHtml(r.notes) + " · " : ""}
-              completed ${r.completedAt ? fmtUtcDate(r.completedAt) : "—"}
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between;">
+              <div style="font-size:11.5px;color:var(--text-dim);">
+                ${r.status === "NOT_OBTAINED" && r.takenByAllianceTag ? `Taken by <strong>${escapeHtml(r.takenByAllianceTag)}</strong> · ` : ""}
+                ${r.notes ? escapeHtml(r.notes) + " · " : ""}
+                completed ${r.completedAt ? fmtUtcDate(r.completedAt) : "—"}
+              </div>
+              <button data-napdelhist="${r.id}" data-nptype="${storeKey}" class="btn small" style="color:var(--accent-red);">Delete</button>
             </div>`
             }
           </div>`
@@ -9257,6 +9260,11 @@ function renderNapAdminSignupSectionHtml(type, statusView, alliances) {
         <div class="field"><label>SIGNUP DATE</label><input id="${prefix}Date" type="date" /></div>
       </div>
       <button class="btn small primary" id="${prefix}Add">Add ${label} Sign Up</button>`
+      }
+      ${
+        statusView !== "HISTORY" || !rows.length
+          ? ""
+          : `<button data-napclearhist="${storeKey}" class="btn small" style="color:var(--accent-red);margin-top:12px;">Clear ${label} History</button>`
       }
     </div>
   `;
@@ -9342,6 +9350,35 @@ function wireNapAdminPanel(el, user) {
       if (idx === -1) return;
       list[idx] = { ...list[idx], status: "NOT_OBTAINED", obtained: false, takenByAllianceTag: sel.value, completedAt: Date.now() };
       Store[storeKey] = list;
+      renderAdmin(el);
+    })
+  );
+
+  // Permanent history deletion — ADMIN only. This whole panel is only ever
+  // wired for true admin (see `if (!officerScoped) wireNapAdminPanel(...)`
+  // above), but the role check is repeated here too so a delete action
+  // called directly (not through this button) is still denied, matching
+  // the defense-in-depth pattern used elsewhere in Admin/Alliance Dashboard.
+  el.querySelectorAll("[data-napdelhist]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (user.role !== "admin") return;
+      const storeKey = btn.dataset.nptype;
+      const label = storeKey === "napFortress" ? "Fortress" : "Stronghold";
+      if (!confirm(`Delete this ${label} history record?`)) return;
+      Store[storeKey] = Store[storeKey].filter((r) => r.id !== btn.dataset.napdelhist);
+      renderAdmin(el);
+    })
+  );
+  el.querySelectorAll("[data-napclearhist]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (user.role !== "admin") return;
+      const storeKey = btn.dataset.napclearhist;
+      const label = storeKey === "napFortress" ? "Fortress" : "Stronghold";
+      if (!confirm(`Are you sure you want to permanently delete ALL ${label} history? This cannot be undone.`)) return;
+      // Keep PENDING (current sign-ups) — only completed (OBTAINED /
+      // NOT_OBTAINED) history records are cleared, and only for this one
+      // type; the other type's history is never touched by this button.
+      Store[storeKey] = Store[storeKey].filter((r) => normalizeNapSignup(r).status === "PENDING");
       renderAdmin(el);
     })
   );
