@@ -467,6 +467,12 @@ function normalizeEvent(raw) {
     title: raw.title && String(raw.title).trim() ? String(raw.title).trim() : typeInfo.label,
     eventType,
     scope: raw.scope || "ALLIANCE",
+    // Only meaningful for Alliance Calendar events (see SEED_ALLIANCE_CALENDAR_EVENTS
+    // below) — null/absent for Game Calendar (state-wide) events. Kept on the
+    // shared normalizeEvent() shape (rather than a second copy of this
+    // function) so both calendars can reuse the same occurrence-expansion
+    // helpers below.
+    allianceId: raw.allianceId || null,
     startDate,
     endDate: raw.endDate || startDate,
     time: raw.time || "",
@@ -487,6 +493,54 @@ function normalizeEvent(raw) {
 // this array directly, so older records (or ones synced from a version of
 // this feature before per-event color/scope/date-range existed) still work.
 const SEED_GAME_EVENTS = [];
+
+// Alliance Calendar — same record shape as SEED_GAME_EVENTS (normalized by
+// the same normalizeEvent()) but every record carries an `allianceId` (the
+// alliance tag, e.g. "SYP") and is private to that alliance: an Alliance
+// Leader/R4 manages only their own alliance's records, Admin can manage
+// every alliance's, and a Member can view (never edit) their own alliance's.
+// This is a UI-level restriction only — see schema.sql's comment on Row
+// Level Security: the app has no per-user Supabase Auth, so every anon-key
+// holder can technically read/write this whole table; the privacy boundary
+// enforced here is the same "everyone with the app trusts the app" model
+// the rest of this file already uses for allianceEventTimes/allianceDiscipline/etc.
+const SEED_ALLIANCE_CALENDAR_EVENTS = [];
+
+// All times on this page (and in eventOccurrencesInRange above) are UTC
+// 24-hour "HH:MM" strings straight from the fixed 30-minute dropdown (see
+// TIME_SLOT_OPTIONS / timeSelectOptionsHtml in app.js) — never AM/PM, never
+// converted to/from the viewer's local timezone.
+function allianceEventOccurrencesInRange(allianceId, rangeStart, rangeEnd) {
+  if (!allianceId) return [];
+  return Store.allianceCalendarEvents
+    .filter((ev) => ev.allianceId === allianceId)
+    .flatMap((ev) => eventOccurrencesInRange(ev, rangeStart, rangeEnd))
+    .sort((a, b) => (a.occurrenceStart + (a.time || "")).localeCompare(b.occurrenceStart + (b.time || "")));
+}
+
+// ---------------------------------------------------------------------------
+// UTC-forced date/time formatting — used anywhere a stored epoch-ms
+// timestamp (updatedAt/createdAt/completedAt, etc.) is shown to a user.
+// Deliberately reads the UTC getters (getUTCFullYear/getUTCHours/...), never
+// the local ones, and never goes through toLocaleString()/toLocaleTimeString()
+// (which format in the viewer's own timezone and, in most locales, 12-hour
+// AM/PM) — see the "24-hour military time, UTC only" site-wide requirement.
+// ---------------------------------------------------------------------------
+function fmtUtcDate(ms) {
+  if (!ms) return "—";
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+function fmtUtcDateTime(ms) {
+  if (!ms) return "—";
+  const d = new Date(ms);
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${fmtUtcDate(ms)} ${hh}:${mm} UTC`;
+}
 
 // ---------------------------------------------------------------------------
 // Alliance Notifications — admin-only (NOT officer/R4, unlike most of the
@@ -672,6 +726,8 @@ const SUPABASE_SYNCED_DEFAULTS = {
   wos_svs_signups_open: true,
   // Game Calendar — array of event records, see SEED_GAME_EVENTS above.
   wos_game_events: SEED_GAME_EVENTS,
+  // Alliance Calendar — array of event records, see SEED_ALLIANCE_CALENDAR_EVENTS above.
+  wos_alliance_calendar_events: SEED_ALLIANCE_CALENDAR_EVENTS,
   // Alliance Notifications — array of notice records, see
   // SEED_ALLIANCE_NOTICES above.
   wos_alliance_notices: SEED_ALLIANCE_NOTICES,
@@ -750,6 +806,7 @@ const Store = {
       this._set("wos_svs_signups", {});
       this._set("wos_svs_signups_open", true);
       this._set("wos_game_events", SEED_GAME_EVENTS);
+      this._set("wos_alliance_calendar_events", SEED_ALLIANCE_CALENDAR_EVENTS);
       this._set("wos_alliance_notices", SEED_ALLIANCE_NOTICES);
       this._set("wos_alliance_event_times", SEED_ALLIANCE_EVENT_TIMES);
       this._set("wos_alliance_discipline", SEED_ALLIANCE_DISCIPLINE);
@@ -942,6 +999,12 @@ const Store = {
   // EVENT_TYPES above, and the "Game Calendar" block in app.js.
   get gameEvents() { return this._synced("wos_game_events", SEED_GAME_EVENTS).get(); },
   set gameEvents(v) { this._synced("wos_game_events", SEED_GAME_EVENTS).set(v); },
+
+  // Alliance Calendar — array of event records, see SEED_ALLIANCE_CALENDAR_EVENTS
+  // above. Every record carries an allianceId; use allianceEventOccurrencesInRange()
+  // rather than reading this array directly, so it's always pre-filtered to one alliance.
+  get allianceCalendarEvents() { return this._synced("wos_alliance_calendar_events", SEED_ALLIANCE_CALENDAR_EVENTS).get(); },
+  set allianceCalendarEvents(v) { this._synced("wos_alliance_calendar_events", SEED_ALLIANCE_CALENDAR_EVENTS).set(v); },
 
   // Alliance Notifications — array of notice records, see
   // SEED_ALLIANCE_NOTICES and normalizeAllianceNotice() above, and the

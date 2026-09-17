@@ -968,6 +968,7 @@ let adminActiveTab = "members";
 // below) — module-level for the same reason as adminActiveTab above.
 const ALLIANCE_DASH_SUBTABS = [
   { id: "overview", label: "Overview" },
+  { id: "calendar", label: "Calendar" },
   { id: "notifications", label: "Notifications" },
   { id: "event-times", label: "Event Times" },
   { id: "participation", label: "Participation" },
@@ -1584,6 +1585,22 @@ function slotTimeLabel(i) {
   return `${String(h).padStart(2, "0")}:${m}`;
 }
 
+// Shared 24-hour, UTC-only, 30-minute-increment time <select> used by every
+// event time field on the site (Game Calendar, Alliance Calendar, Alliance
+// Dashboard → Event Times). A dropdown of fixed "HH:MM" strings (built off
+// slotTimeLabel's same half-hour arithmetic — never a Date/locale) makes an
+// AM/PM value structurally impossible to enter, unlike a native
+// `<input type="time">`, whose on-screen picker can still show 12-hour
+// AM/PM in some browsers/OS locales even though its stored value is 24h.
+function timeSelectOptionsHtml(selected) {
+  const opts = [`<option value="" ${!selected ? "selected" : ""}>— No specific time —</option>`];
+  for (let i = 0; i < 48; i++) {
+    const t = slotTimeLabel(i);
+    opts.push(`<option value="${t}" ${t === selected ? "selected" : ""}>${t} UTC</option>`);
+  }
+  return opts.join("");
+}
+
 function countSelectedSlots() {
   if (svsDraft.availabilityType === "all") return { n: svsDraft.slots.all.filter(Boolean).length, denom: 48 };
   let n = 0;
@@ -1714,7 +1731,7 @@ function renderSvSMySubmission(el) {
       <div class="summary-row"><span class="k">Timezone</span><span class="v">${escapeHtml(sub.timezone)}</span></div>
       <div class="summary-row"><span class="k">Availability</span><span class="v">${n} / ${denom} slots (${sub.availabilityType === "all" ? "all days" : "by day"})</span></div>
       <div class="summary-row"><span class="k">Projected points</span><span class="v">${fmtNum(total)}</span></div>
-      <div class="summary-row"><span class="k">Last updated</span><span class="v">${new Date(sub.updatedAt).toLocaleString()}</span></div>
+      <div class="summary-row"><span class="k">Last updated</span><span class="v">${fmtUtcDateTime(sub.updatedAt)}</span></div>
       ${sub.notes ? `<div class="summary-row"><span class="k">Notes</span><span class="v">${escapeHtml(sub.notes)}</span></div>` : ""}
       <button class="btn primary small" id="editSub" style="margin-top:14px;">Edit submission</button>
     </div>
@@ -1943,7 +1960,7 @@ function renderSvsSignupForm(el) {
       }).join("")}
 
       ${!disabled ? `<button class="btn primary" id="signupSubmit" style="margin-top:18px;">${existing ? "UPDATE SVS SIGNUP" : "SUBMIT SVS SIGNUP"}</button>` : ""}
-      ${existing ? `<p style="font-size:11px;color:var(--text-faint);margin-top:10px;">Last saved ${new Date(existing.updatedAt).toLocaleString()}.</p>` : ""}
+      ${existing ? `<p style="font-size:11px;color:var(--text-faint);margin-top:10px;">Last saved ${fmtUtcDateTime(existing.updatedAt)}.</p>` : ""}
     </div>
   `;
 
@@ -2514,7 +2531,7 @@ function renderFeedback(el) {
           <div class="feedback-body">
             <div class="title">${escapeHtml(it.title || it.body.slice(0, 60))}<span class="status-badge ${it.status}">${t("feedback.status." + it.status).toUpperCase()}</span></div>
             <div class="meta">${escapeHtml(it.body)}</div>
-            <div class="meta" style="margin-top:4px;">— ${escapeHtml(it.author)} · ${new Date(it.createdAt).toLocaleDateString()}</div>
+            <div class="meta" style="margin-top:4px;">— ${escapeHtml(it.author)} · ${fmtUtcDate(it.createdAt)}</div>
           </div>
         </div>`
         )
@@ -2872,7 +2889,7 @@ function renderAllianceNotificationsPanelHtml(user, lockedAlliance) {
                   <div style="font-size:12px;color:var(--text-dim);white-space:pre-wrap;overflow-wrap:anywhere;max-height:54px;overflow:hidden;">${
                     n.noticeText ? escapeHtml(n.noticeText) : `<span style="color:var(--text-faint);">(empty)</span>`
                   }</div>
-                  <div style="font-size:10.5px;color:var(--text-faint);margin-top:4px;">${n.characterCount} chars · updated ${new Date(n.updatedAt).toLocaleDateString()}</div>
+                  <div style="font-size:10.5px;color:var(--text-faint);margin-top:4px;">${n.characterCount} chars · updated ${fmtUtcDate(n.updatedAt)}</div>
                 </div>
                 <div style="display:flex;gap:6px;flex-wrap:wrap;flex:none;">
                   <button data-ancopy="${n.id}" class="btn small">Copy</button>
@@ -3281,7 +3298,7 @@ function renderAdmin(el) {
                   const { bySection, total } = computeBagPoints(sub.values);
                   return `<tr><td>${escapeHtml(m.name)}</td>${bySection
                     .map((s) => `<td>${fmtNum(s.points)}</td>`)
-                    .join("")}<td><strong>${fmtNum(total)}</strong></td><td>${new Date(sub.updatedAt).toLocaleDateString()}</td>${editBtn}</tr>`;
+                    .join("")}<td><strong>${fmtNum(total)}</strong></td><td>${fmtUtcDate(sub.updatedAt)}</td>${editBtn}</tr>`;
                 })
                 .join("") || `<tr><td colspan="${BAG_SECTIONS.length + 4}">No members yet.</td></tr>`
             }
@@ -3729,6 +3746,7 @@ function renderAllianceDashboardTabHtml(user, officerScoped) {
     </div>
 
     ${allianceDashSubTab !== "overview" ? "" : renderAllianceDashOverviewHtml(user, viewingAlliance, members, bagSubs, svsSignups)}
+    ${allianceDashSubTab !== "calendar" ? "" : renderAllianceCalendarHtml(viewingAlliance, isAdmin(user))}
     ${allianceDashSubTab !== "notifications" ? "" : renderAllianceNotificationsPanelHtml(user, viewingAlliance)}
     ${allianceDashSubTab !== "event-times" ? "" : renderAllianceDashEventTimesHtml(viewingAlliance)}
     ${allianceDashSubTab !== "participation" ? "" : renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, svsSignups)}
@@ -3803,6 +3821,381 @@ function renderAllianceDashOverviewHtml(user, viewingAlliance, members, bagSubs,
   `;
 }
 
+// ---------------------------------------------------------------------------
+// Alliance Calendar — a private, per-alliance event calendar. Structurally
+// this is a second copy of the Game Calendar's grid/bar/modal machinery
+// (see renderGameCalendar/openEventModal above) rather than a shared
+// component, because the Game Calendar owns its whole page (`el.innerHTML =`)
+// while this one is embedded as a fragment inside the larger Admin →
+// Alliance Dashboard page (and, via renderAllianceCalendarSectionForMember,
+// inside the member-facing Game Calendar page's own toggle) — see
+// wireAllianceCalendarSection below for the DOM-wiring half.
+//
+// Privacy note: every record here carries an allianceId and is filtered by
+// allianceEventOccurrencesInRange() (data.js) before it ever reaches this
+// render function — an alliance's events are never fetched into a page
+// rendering a different alliance. This is a UI-level restriction, the same
+// trust model the rest of the app already uses for allianceEventTimes/
+// allianceDiscipline/etc — see the comment on SEED_ALLIANCE_CALENDAR_EVENTS
+// in data.js for why a real per-alliance database-level restriction isn't
+// possible without adding Supabase Auth (this app has none; RLS is wide
+// open to anyone holding the published anon key).
+// ---------------------------------------------------------------------------
+let allianceCalViewDate = (() => { const d = new Date(); d.setDate(1); return d; })();
+let allianceCalSelectedDate = null; // "YYYY-MM-DD" | null — null = show upcoming list instead of one day
+
+function renderAllianceCalendarHtml(allianceId, canManage) {
+  if (!allianceId) {
+    return `<div class="panel"><div class="empty">No alliance selected.</div></div>`;
+  }
+  const year = allianceCalViewDate.getFullYear();
+  const month = allianceCalViewDate.getMonth();
+
+  const firstOfMonth = new Date(year, month, 1);
+  const gridStart = new Date(firstOfMonth);
+  gridStart.setDate(gridStart.getDate() - firstOfMonth.getDay());
+  const cells = Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    return d;
+  });
+  const gridEnd = cells[cells.length - 1];
+  const weeks = Array.from({ length: 6 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
+
+  const occurrences = allianceEventOccurrencesInRange(allianceId, gridStart, gridEnd);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = fmtEventDate(today);
+
+  const byDate = {};
+  occurrences.forEach((occ) => {
+    const s = parseEventDate(occ.occurrenceStart), e = parseEventDate(occ.occurrenceEnd);
+    for (const d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+      if (d >= gridStart && d <= gridEnd) (byDate[fmtEventDate(d)] = byDate[fmtEventDate(d)] || []).push(occ);
+    }
+  });
+
+  let listTitle, listOccurrences;
+  if (allianceCalSelectedDate) {
+    listTitle = fmtEventDateLabel(allianceCalSelectedDate).toUpperCase();
+    listOccurrences = byDate[allianceCalSelectedDate] || [];
+  } else {
+    listTitle = "UPCOMING EVENTS";
+    const upcomingEnd = new Date(today);
+    upcomingEnd.setDate(upcomingEnd.getDate() + 90);
+    listOccurrences = allianceEventOccurrencesInRange(allianceId, today, upcomingEnd);
+  }
+
+  const weekRowsHtml = weeks
+    .map((week) => {
+      const weekStart = week[0], weekEnd = week[6];
+      const segs = [];
+      occurrences.forEach((occ) => {
+        const occStart = parseEventDate(occ.occurrenceStart), occEnd = parseEventDate(occ.occurrenceEnd);
+        if (occEnd < weekStart || occStart > weekEnd) return;
+        const segStart = occStart < weekStart ? weekStart : occStart;
+        const segEnd = occEnd > weekEnd ? weekEnd : occEnd;
+        segs.push({
+          occ,
+          colStart: Math.round((segStart - weekStart) / 86400000),
+          colEnd: Math.round((segEnd - weekStart) / 86400000),
+          continuesBefore: occStart < weekStart,
+          continuesAfter: occEnd > weekEnd,
+        });
+      });
+      segs.sort((a, b) => a.colStart - b.colStart || (b.colEnd - b.colStart) - (a.colEnd - a.colStart));
+      const laneLastCol = [];
+      segs.forEach((s) => {
+        let lane = laneLastCol.findIndex((last) => last < s.colStart);
+        if (lane === -1) { lane = laneLastCol.length; laneLastCol.push(-1); }
+        s.lane = lane;
+        laneLastCol[lane] = s.colEnd;
+      });
+      const laneCount = Math.max(1, laneLastCol.length);
+
+      const dayCellsHtml = week
+        .map((d, i) => {
+          const dStr = fmtEventDate(d);
+          const cls = [
+            "cal-day-bg",
+            d.getMonth() === month ? "" : "other-month",
+            dStr === todayStr ? "today" : "",
+            dStr === allianceCalSelectedDate ? "selected" : "",
+          ].filter(Boolean).join(" ");
+          return `<div class="${cls}" data-acaldate="${dStr}" style="grid-column:${i + 1};grid-row:1 / -1;"><span class="cal-daynum">${d.getDate()}</span></div>`;
+        })
+        .join("");
+
+      const barsHtml = segs
+        .map((s) => {
+          const o = s.occ;
+          const title = escapeHtml(o.title);
+          const roundL = !s.continuesBefore, roundR = !s.continuesAfter;
+          const radius = `${roundL ? "5px" : "0"} ${roundR ? "5px" : "0"} ${roundR ? "5px" : "0"} ${roundL ? "5px" : "0"}`;
+          return `
+            <div class="cal-event-bar" data-acalbar="${o.id}" data-abaroccstart="${o.occurrenceStart}"
+                 style="grid-column:${s.colStart + 1} / ${s.colEnd + 2};grid-row:${s.lane + 2};background:${o.color};color:${readableTextColor(o.color)};border-radius:${radius};"
+                 title="${title}">
+              ${!roundL ? `<span class="cal-bar-cont">‹</span>` : ""}<span class="cal-bar-label">${title}</span>${!roundR ? `<span class="cal-bar-cont">›</span>` : ""}
+            </div>`;
+        })
+        .join("");
+
+      return `<div class="cal-week-row" style="grid-template-rows:22px repeat(${laneCount}, 20px);">${dayCellsHtml}${barsHtml}</div>`;
+    })
+    .join("");
+
+  return `
+    <div class="panel">
+      <div class="cal-header">
+        <div class="cal-month-nav">
+          <button id="acalPrev">‹</button>
+          <span class="cal-month-label">${firstOfMonth.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" }).toUpperCase()}</span>
+          <button id="acalNext">›</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="btn small" id="acalToday">TODAY</button>
+          ${canManage ? `<button class="btn primary small" id="acalAdd">+ ADD EVENT</button>` : ""}
+        </div>
+      </div>
+
+      <p style="font-size:11px;color:var(--text-dim);margin:8px 0 0;">Private to this alliance — Admin can view/manage every alliance's calendar; this alliance's own Leader/R4 can view/manage only this one; Members can view only.</p>
+
+      <div class="cal-weekday-row">
+        ${CAL_WEEKDAY_LABELS.map((l) => `<div class="cal-daylabel">${l}</div>`).join("")}
+      </div>
+      <div style="margin-bottom:10px;">${weekRowsHtml}</div>
+    </div>
+
+    <div class="db-heading">
+      <span class="stat-icon">${icon("calendar")}</span>
+      <div>
+        <div class="title">${listTitle}</div>
+        <div class="sub">${allianceCalSelectedDate ? `<a href="#" id="acalClearSelection" style="color:var(--accent-red);">← back to upcoming</a>` : "Next 90 days"}</div>
+      </div>
+    </div>
+    <div>
+      ${
+        listOccurrences.length
+          ? listOccurrences
+              .map((o) => {
+                return `
+                <div class="cal-event-row" style="border-left-color:${o.color};">
+                  <div class="cal-event-date">${fmtEventRangeLabel(o.occurrenceStart, o.occurrenceEnd)}${o.time ? `<br/>${escapeHtml(o.time)} UTC` : ""}</div>
+                  <div class="cal-event-body">
+                    <div class="cal-event-title">
+                      <span class="cal-dot" style="background:${o.color};"></span>${escapeHtml(o.title)}
+                      ${o.repeatRule !== "NONE" ? `<span class="cal-recurring-badge">${o.repeatRule}</span>` : ""}
+                    </div>
+                    ${o.notes ? `<div class="cal-event-notes">${escapeHtml(o.notes)}</div>` : ""}
+                  </div>
+                  ${
+                    canManage
+                      ? `<div class="cal-event-actions">
+                          <button data-acaledit="${o.id}">EDIT</button>
+                          <button data-acaldelete="${o.id}">DELETE</button>
+                        </div>`
+                      : ""
+                  }
+                </div>`;
+              })
+              .join("")
+          : `<div class="empty">${allianceCalSelectedDate ? "No events on this day." : "No upcoming events in the next 90 days."}</div>`
+      }
+    </div>
+  `;
+}
+
+// Wires the fragment rendered by renderAllianceCalendarHtml above. `el` is
+// the containing page element (Admin page, or the member-facing Game
+// Calendar page toggle) and `rerender` re-renders that whole page — same
+// pattern every other Admin Dashboard sub-tab wiring uses (renderAdmin(el)).
+function wireAllianceCalendarSection(el, allianceId, canManage, rerender) {
+  el.querySelector("#acalPrev")?.addEventListener("click", () => {
+    allianceCalViewDate = new Date(allianceCalViewDate.getFullYear(), allianceCalViewDate.getMonth() - 1, 1);
+    rerender();
+  });
+  el.querySelector("#acalNext")?.addEventListener("click", () => {
+    allianceCalViewDate = new Date(allianceCalViewDate.getFullYear(), allianceCalViewDate.getMonth() + 1, 1);
+    rerender();
+  });
+  el.querySelector("#acalToday")?.addEventListener("click", () => {
+    allianceCalViewDate = (() => { const d = new Date(); d.setDate(1); return d; })();
+    allianceCalSelectedDate = fmtEventDate(new Date(new Date().setHours(0, 0, 0, 0)));
+    rerender();
+  });
+  el.querySelector("#acalAdd")?.addEventListener("click", () =>
+    openAllianceEventModal(allianceId, null, allianceCalSelectedDate || fmtEventDate(new Date()), rerender)
+  );
+  el.querySelector("#acalClearSelection")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    allianceCalSelectedDate = null;
+    rerender();
+  });
+  el.querySelectorAll("[data-acaldate]").forEach((cell) =>
+    cell.addEventListener("click", () => {
+      const d = cell.dataset.acaldate;
+      allianceCalSelectedDate = allianceCalSelectedDate === d ? null : d;
+      rerender();
+    })
+  );
+  el.querySelectorAll("[data-acalbar]").forEach((bar) =>
+    bar.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (canManage) {
+        const raw = Store.allianceCalendarEvents.find((x) => x.id === bar.dataset.acalbar);
+        if (raw) openAllianceEventModal(allianceId, raw, raw.startDate, rerender);
+      } else {
+        allianceCalSelectedDate = bar.dataset.abaroccstart;
+        rerender();
+      }
+    })
+  );
+  el.querySelectorAll("[data-acaledit]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const raw = Store.allianceCalendarEvents.find((x) => x.id === b.dataset.acaledit);
+      if (raw) openAllianceEventModal(allianceId, raw, raw.startDate, rerender);
+    })
+  );
+  el.querySelectorAll("[data-acaldelete]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const events = Store.allianceCalendarEvents;
+      const raw = events.find((x) => x.id === b.dataset.acaldelete);
+      if (!raw) return;
+      const ev = normalizeEvent(raw);
+      if (!confirm(`Delete "${ev.title}"${ev.repeatRule !== "NONE" ? " and its whole recurring series" : ""}? This can't be undone.`)) return;
+      Store.allianceCalendarEvents = events.filter((x) => x.id !== ev.id);
+      rerender();
+    })
+  );
+}
+
+// Add/Edit modal for one alliance's own calendar — same field set as the
+// Game Calendar's openEventModal, minus EVENT SCOPE (an Alliance Calendar
+// event's scope is implicitly ALLIANCE, tied to allianceId, per spec — no
+// need to ask). `rerender` matches wireAllianceCalendarSection above.
+function openAllianceEventModal(allianceId, existingRaw, presetDate, rerender) {
+  const existing = existingRaw ? normalizeEvent(existingRaw) : null;
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  const typeId = existing?.eventType || EVENT_TYPES[0].id;
+  let selectedColor = existing?.color || eventTypeInfo(typeId).defaultColor || DEFAULT_EVENT_COLOR;
+
+  overlay.innerHTML = `
+    <div class="modal">
+      <button class="close">&times;</button>
+      <h3>${existing ? "Edit Alliance Event" : "Add Alliance Event"}</h3>
+      <div class="field" style="margin-top:10px;">
+        <label>EVENT TITLE</label>
+        <input id="aevTitle" value="${existing?.title ? escapeHtml(existing.title) : ""}" placeholder="e.g. Bear Trap" />
+      </div>
+      <div class="field">
+        <label>EVENT TYPE</label>
+        <select id="aevType">
+          ${EVENT_TYPES.map((et) => `<option value="${et.id}" ${et.id === typeId ? "selected" : ""}>${et.label}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>START DATE</label>
+          <input id="aevStartDate" type="date" value="${existing?.startDate || presetDate || ""}" />
+        </div>
+        <div class="field">
+          <label>END DATE</label>
+          <input id="aevEndDate" type="date" value="${existing?.endDate || existing?.startDate || presetDate || ""}" />
+        </div>
+      </div>
+      <div class="field">
+        <label>TIME (OPTIONAL, 24-HOUR / MILITARY, UTC)</label>
+        <select id="aevTime">${timeSelectOptionsHtml(existing?.time || "")}</select>
+      </div>
+      <div class="field">
+        <label>EVENT COLOR</label>
+        <div class="cal-color-row">
+          ${EVENT_COLOR_PRESETS.map(
+            (c) =>
+              `<button type="button" class="cal-color-swatch${c.value.toLowerCase() === selectedColor.toLowerCase() ? " selected" : ""}" data-color="${c.value}" style="background:${c.value};" title="${c.name}"></button>`
+          ).join("")}
+          <label class="cal-color-swatch cal-color-custom" title="Custom color" style="background:${selectedColor};">
+            <input type="color" id="aevColorCustom" value="${/^#[0-9a-f]{6}$/i.test(selectedColor) ? selectedColor : DEFAULT_EVENT_COLOR}" />
+          </label>
+        </div>
+      </div>
+      <div class="field">
+        <label>REPEATS</label>
+        <select id="aevRepeat">
+          <option value="NONE" ${!existing || existing.repeatRule === "NONE" ? "selected" : ""}>Does not repeat</option>
+          <option value="WEEKLY" ${existing?.repeatRule === "WEEKLY" ? "selected" : ""}>Weekly</option>
+          <option value="BIWEEKLY" ${existing?.repeatRule === "BIWEEKLY" ? "selected" : ""}>Every 2 weeks</option>
+          <option value="MONTHLY" ${existing?.repeatRule === "MONTHLY" ? "selected" : ""}>Monthly</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>NOTES (OPTIONAL)</label>
+        <textarea id="aevNotes" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:9px 10px;font-size:13px;min-height:60px;resize:vertical;">${existing?.notes ? escapeHtml(existing.notes) : ""}</textarea>
+      </div>
+      <div id="aevErr" style="color:var(--accent-red);font-size:11.5px;margin:-2px 0 6px;min-height:16px;"></div>
+      <button class="btn primary" id="aevSave" style="width:100%;">${existing ? "SAVE CHANGES" : "ADD EVENT"}</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".close").onclick = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  const customSwatch = overlay.querySelector(".cal-color-custom");
+  const customInput = overlay.querySelector("#aevColorCustom");
+  const presetSwatches = overlay.querySelectorAll(".cal-color-swatch[data-color]");
+  presetSwatches.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedColor = btn.dataset.color;
+      presetSwatches.forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      customInput.value = selectedColor;
+      customSwatch.style.background = selectedColor;
+    });
+  });
+  customInput.addEventListener("input", () => {
+    selectedColor = customInput.value;
+    presetSwatches.forEach((b) => b.classList.remove("selected"));
+    customSwatch.style.background = selectedColor;
+  });
+
+  overlay.querySelector("#aevSave").addEventListener("click", () => {
+    const errEl = overlay.querySelector("#aevErr");
+    const title = overlay.querySelector("#aevTitle").value.trim();
+    const startDate = overlay.querySelector("#aevStartDate").value;
+    const endDate = overlay.querySelector("#aevEndDate").value;
+    if (!title) { errEl.textContent = "Event title is required."; return; }
+    if (!startDate || !endDate) { errEl.textContent = "Pick a start and end date."; return; }
+    if (endDate < startDate) { errEl.textContent = "End date cannot be before start date."; return; }
+    const record = {
+      id: existing?.id || "aev" + Date.now(),
+      allianceId,
+      title,
+      eventType: overlay.querySelector("#aevType").value,
+      scope: "ALLIANCE",
+      startDate,
+      endDate,
+      time: overlay.querySelector("#aevTime").value,
+      color: selectedColor,
+      repeatRule: overlay.querySelector("#aevRepeat").value,
+      notes: overlay.querySelector("#aevNotes").value.trim(),
+      createdBy: existing?.createdBy || Store.currentUser?.id || null,
+      updatedAt: Date.now(),
+    };
+    const events = Store.allianceCalendarEvents;
+    Store.allianceCalendarEvents = existing
+      ? events.map((x) => (x.id === existing.id ? record : x))
+      : [...events, record];
+    overlay.remove();
+    allianceCalSelectedDate = startDate;
+    rerender();
+  });
+}
+
 function renderAllianceDashEventTimesHtml(viewingAlliance) {
   const times = (Store.allianceEventTimes[viewingAlliance] || []).slice().sort((a, b) => a.title.localeCompare(b.title));
   return `
@@ -3830,7 +4223,7 @@ function renderAllianceDashEventTimesHtml(viewingAlliance) {
       </div>
       <div class="field-row">
         <div class="field"><label>TITLE</label><input id="etTitle" placeholder="e.g. Bear Trap" /></div>
-        <div class="field"><label>TIME (24-HOUR / MILITARY, UTC)</label><input id="etTime" placeholder="e.g. 20:00 UTC daily" /></div>
+        <div class="field"><label>TIME (24-HOUR / MILITARY, UTC)</label><select id="etTime">${timeSelectOptionsHtml("")}</select></div>
         <div class="field" style="flex:1;min-width:180px;"><label>NOTES (OPTIONAL)</label><input id="etNotes" placeholder="—" /></div>
       </div>
       <button class="btn small primary" id="etAdd">Add Event Time</button>
@@ -3927,7 +4320,7 @@ function renderAllianceDashDisciplineHtml(viewingAlliance) {
                 <span class="status-badge ${e.severity === "strike" ? "open" : e.severity === "warning" ? "planned" : "done"}">${e.severity.toUpperCase()}</span>
               </div>
               <div style="font-size:12px;color:var(--text-dim);">${escapeHtml(e.note)}</div>
-              <div style="font-size:10.5px;color:var(--text-faint);margin-top:2px;">${escapeHtml(e.createdByName || "—")} · ${new Date(e.createdAt).toLocaleDateString()}</div>
+              <div style="font-size:10.5px;color:var(--text-faint);margin-top:2px;">${escapeHtml(e.createdByName || "—")} · ${fmtUtcDate(e.createdAt)}</div>
             </div>
             <button data-discdel="${e.id}" class="btn small" style="color:var(--accent-red);">✕</button>
           </div>`
@@ -3970,6 +4363,14 @@ function wireAllianceDashboardTab(el, user, officerScoped) {
   );
 
   const viewingAlliance = allianceDashboardViewingAlliance(user, officerScoped);
+
+  // Alliance Calendar — isAdmin(user) is true for ADMIN/LEADER/R4 (see its
+  // definition), matching the Game Calendar's own "admin" flag; viewingAlliance
+  // is already locked to the signed-in LEADER/R4's own alliance above, and to
+  // whatever ADMIN picked in the dropdown, so no extra scoping is needed here.
+  if (allianceDashSubTab === "calendar") {
+    wireAllianceCalendarSection(el, viewingAlliance, isAdmin(user), () => renderAdmin(el));
+  }
 
   // R4 Management — only reachable in the DOM for ADMIN/LEADER (see
   // canManageR4Roles gate in renderAllianceDashOverviewHtml), but every
@@ -4199,7 +4600,7 @@ function renderNapAdminSignupSectionHtml(type, statusView, alliances) {
             <div style="font-size:11.5px;color:var(--text-dim);">
               ${r.status === "NOT_OBTAINED" && r.takenByAllianceTag ? `Taken by <strong>${escapeHtml(r.takenByAllianceTag)}</strong> · ` : ""}
               ${r.notes ? escapeHtml(r.notes) + " · " : ""}
-              completed ${r.completedAt ? new Date(r.completedAt).toLocaleDateString() : "—"}
+              completed ${r.completedAt ? fmtUtcDate(r.completedAt) : "—"}
             </div>`
             }
           </div>`
@@ -4690,9 +5091,69 @@ function fmtEventRangeLabel(startStr, endStr) {
     : `${fmtEventDateLabel(startStr)} – ${fmtEventDateLabel(endStr)}`;
 }
 
+// STATE calendar (Store.gameEvents, visible to everyone) vs ALLIANCE
+// calendar (Store.allianceCalendarEvents, private to one alliance) — see
+// section 19/20 of the site's calendar spec: two distinct calendar levels,
+// never merged at the data layer, with only an optional combined VIEW.
+let gameCalMode = "state"; // "state" | "alliance"
+// Which alliance a signed-in ADMIN is browsing on this page (LEADER/R4/MEMBER
+// are always locked to their own user.alliance, same as the Admin Dashboard).
+let gameCalAdminAllianceChoice = null;
+
 function renderGameCalendar(el) {
   const user = Store.currentUser;
   const admin = isAdmin(user);
+  // Every member record (any role) carries its own alliance tag — unlike
+  // userAllianceTag() above (which is deliberately role-gated to
+  // LEADER/R4 for other Admin-only features), a plain MEMBER still needs
+  // their own alliance here so they can view (never edit) its calendar.
+  const userAllianceTagVal = user?.alliance || null;
+  const canPickAlliance = user?.role === "admin";
+  const allianceIdForCal = canPickAlliance
+    ? gameCalAdminAllianceChoice || userAllianceTagVal || Store.alliances[0] || null
+    : userAllianceTagVal;
+  // Only ADMIN/LEADER/R4 can manage the alliance calendar's events; a plain
+  // MEMBER can always view their own alliance's calendar (per spec) but
+  // never edit it, regardless of the `admin` (isAdmin) flag's own alliance.
+  const canManageAllianceCal = admin;
+
+  if (gameCalMode === "alliance") {
+    el.innerHTML = `
+      <div class="eyebrow">// SCHEDULE</div>
+      <h1 class="page-title" style="color:var(--accent-red)">game_calendar</h1>
+      <div class="pill-toggle" style="margin-bottom:14px;max-width:360px;">
+        <button data-calmode="state">STATE CALENDAR</button>
+        <button data-calmode="alliance" class="active">ALLIANCE CALENDAR</button>
+      </div>
+      ${
+        canPickAlliance
+          ? `<div class="field" style="max-width:220px;margin-bottom:12px;">
+              <label>ALLIANCE</label>
+              <select id="gameCalAllianceSelect">
+                ${Store.alliances.map((a) => `<option value="${escapeHtml(a)}" ${a === allianceIdForCal ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")}
+              </select>
+            </div>`
+          : ""
+      }
+      ${
+        allianceIdForCal
+          ? renderAllianceCalendarHtml(allianceIdForCal, canManageAllianceCal)
+          : `<div class="panel"><div class="empty">Your account isn't assigned to an alliance yet — ask an admin to set it in Admin → Members.</div></div>`
+      }
+    `;
+    el.querySelectorAll("[data-calmode]").forEach((btn) =>
+      btn.addEventListener("click", () => { gameCalMode = btn.dataset.calmode; renderGameCalendar(el); })
+    );
+    el.querySelector("#gameCalAllianceSelect")?.addEventListener("change", (e) => {
+      gameCalAdminAllianceChoice = e.target.value;
+      renderGameCalendar(el);
+    });
+    if (allianceIdForCal) {
+      wireAllianceCalendarSection(el, allianceIdForCal, canManageAllianceCal, () => renderGameCalendar(el));
+    }
+    return;
+  }
+
   const year = calendarViewDate.getFullYear();
   const month = calendarViewDate.getMonth();
 
@@ -4808,12 +5269,20 @@ function renderGameCalendar(el) {
   el.innerHTML = `
     <div class="eyebrow">// SCHEDULE</div>
     <h1 class="page-title" style="color:var(--accent-red)">game_calendar</h1>
+    ${
+      Store.alliances.length
+        ? `<div class="pill-toggle" style="margin-bottom:14px;max-width:360px;">
+            <button data-calmode="state" class="active">STATE CALENDAR</button>
+            <button data-calmode="alliance">ALLIANCE CALENDAR</button>
+          </div>`
+        : ""
+    }
 
     <div class="panel">
       <div class="cal-header">
         <div class="cal-month-nav">
           <button id="calPrev">‹</button>
-          <span class="cal-month-label">${firstOfMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" }).toUpperCase()}</span>
+          <span class="cal-month-label">${firstOfMonth.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" }).toUpperCase()}</span>
           <button id="calNext">›</button>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -4873,6 +5342,9 @@ function renderGameCalendar(el) {
     </div>
   `;
 
+  el.querySelectorAll("[data-calmode]").forEach((btn) =>
+    btn.addEventListener("click", () => { gameCalMode = btn.dataset.calmode; renderGameCalendar(el); })
+  );
   el.querySelector("#calPrev").addEventListener("click", () => {
     calendarViewDate = new Date(year, month - 1, 1);
     renderGameCalendar(el);
@@ -4978,7 +5450,7 @@ function openEventModal(pageEl, existingRaw, presetDate) {
       </div>
       <div class="field">
         <label>TIME (OPTIONAL, 24-HOUR / MILITARY, UTC)</label>
-        <input id="evTime" type="time" step="60" lang="en-GB" value="${existing?.time || ""}" />
+        <select id="evTime">${timeSelectOptionsHtml(existing?.time || "")}</select>
       </div>
       <div class="field">
         <label>EVENT COLOR</label>
