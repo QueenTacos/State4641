@@ -624,6 +624,82 @@ const SEED_ALLIANCE_EVENT_TIMES = {};
 const SEED_ALLIANCE_DISCIPLINE = {};
 const DISCIPLINE_SEVERITIES = ["note", "warning", "strike"];
 
+// Today's Reminders — { [allianceTag]: [{ id, text, done, createdAt }] } —
+// a tiny per-alliance checklist for the Overview hub (see the mockup-driven
+// Overview redesign in app.js). Deliberately NOT date-scoped/auto-clearing
+// (there's no server-side day boundary in a client-only app) — it's just a
+// simple shared scratch checklist LEADER/R4/Admin keep for their alliance.
+const SEED_ALLIANCE_REMINDERS = {};
+
+// R4 Current Jobs — { [allianceTag]: [{ id, assignedTo (playerId or null),
+// assignedToName (snapshot, same reasoning as Discipline's memberName —
+// still reads sensibly if that member later leaves/is removed), task,
+// dueDate, status, notes, updatedAt }] }. A freeform task list, NOT tied
+// 1:1 to the member roster the way the trackers below are — a job is
+// whatever LEADER/R4/Admin types in, "Assigned To" is just a convenience
+// picker from the current roster.
+const SEED_ALLIANCE_R4_JOBS = {};
+const R4_JOB_STATUSES = ["NOT_STARTED", "IN_PROGRESS", "COMPLETED"];
+
+function normalizeR4Job(raw) {
+  return {
+    id: raw.id,
+    assignedTo: raw.assignedTo || null,
+    assignedToName: raw.assignedToName || "",
+    task: raw.task || "",
+    dueDate: raw.dueDate || "",
+    status: R4_JOB_STATUSES.includes(raw.status) ? raw.status : "NOT_STARTED",
+    notes: raw.notes || "",
+    updatedAt: raw.updatedAt || null,
+  };
+}
+
+// Per-member Alliance Dashboard tracking — Ranking List, Time Offline,
+// Contributions, Alliance Mobilization Final Points, and the event
+// participation checkboxes/dropdown (Fortress, Foundry, Canyon Clash, Crazy
+// Joe, Bear Trap, Alliance Championship). One flat nested object:
+//   { [allianceTag]: { [category]: { [playerId]: <fields> } } }
+// Deliberately keyed by the member's EXISTING playerId, never a separately
+// typed name — rows in every one of these sections come from the alliance's
+// current member list (see `members` in renderAllianceDashboardTabHtml), so
+// a tracking record only ever exists for a real, current playerId and is
+// upserted in place (see updateAllianceTrackingField below). If someone
+// leaves the alliance their tracking rows simply stop being shown — nothing
+// here is ever a second, independently-typed roster.
+const SEED_ALLIANCE_TRACKING = {};
+const ALLIANCE_TRACKING_CATEGORIES = [
+  "ranking",
+  "timeOffline",
+  "contributions",
+  "fortress",
+  "foundry",
+  "canyon",
+  "crazyjoe",
+  "beartrap",
+  "champTrack",
+  "mobilization",
+];
+const BEAR_TRAP_ASSIGNMENTS = ["NONE", "BT1", "BT2", "BOTH"];
+
+function allianceTrackingCategory(alliance, category) {
+  const all = Store.allianceTracking;
+  return (all[alliance] && all[alliance][category]) || {};
+}
+
+// Upsert ONE player's record within one alliance + tracking category — the
+// update/upsert key is exactly allianceId + playerId + category, so the
+// same checkbox/dropdown/field toggling twice never creates a second record
+// (a plain object keyed by playerId can only ever hold one entry per id).
+function updateAllianceTrackingField(alliance, category, playerId, patch) {
+  if (!alliance || !playerId) return;
+  const all = Store.allianceTracking;
+  const forAlliance = { ...(all[alliance] || {}) };
+  const forCategory = { ...(forAlliance[category] || {}) };
+  forCategory[playerId] = { ...(forCategory[playerId] || {}), ...patch };
+  forAlliance[category] = forCategory;
+  Store.allianceTracking = { ...all, [alliance]: forAlliance };
+}
+
 // ---------------------------------------------------------------------------
 // NAP Dashboard — Non-Aggression Pact tracking, shared/state-level (not
 // per-alliance like the Alliance Dashboard above). See the "NAP Dashboard"
@@ -683,13 +759,6 @@ const PLANNED_TOOLS = [];
 // using localStorage exactly as it always has, with zero setup required.
 // ---------------------------------------------------------------------------
 const SUPABASE_CONFIG = {
-  // State 4641's OWN, dedicated Supabase project — this used to point at
-  // the same project state-analytics (State 3929) uses, which meant the
-  // two "separate" sites were actually sharing one app_state table the
-  // whole time (last write to a given key wins, regardless of which site
-  // wrote it — this is what caused 4641 to display 3929's data). Fixed by
-  // pointing this at 4641's own project instead; state-analytics/data.js
-  // is untouched and still points at its original project.
   url: "https://xnfmwutvchaeazejlzzq.supabase.co", // Project Settings -> API
   anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhuZm13dXR2Y2hhZWF6ZWpsenpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMTE4NjcsImV4cCI6MjEwNDg4Nzg2N30.sf3BLgrO_eCKPzAHKi86DZMXB-aYTRFcah3ZEDljE4Q", // the "anon public" key on that same page — safe to publish, it's gated by Row Level Security, not secrecy
 };
@@ -734,6 +803,9 @@ const SUPABASE_SYNCED_DEFAULTS = {
   // Alliance Dashboard — see the "Alliance Dashboard" block above.
   wos_alliance_event_times: SEED_ALLIANCE_EVENT_TIMES,
   wos_alliance_discipline: SEED_ALLIANCE_DISCIPLINE,
+  wos_alliance_r4_jobs: SEED_ALLIANCE_R4_JOBS,
+  wos_alliance_tracking: SEED_ALLIANCE_TRACKING,
+  wos_alliance_reminders: SEED_ALLIANCE_REMINDERS,
   // NAP Dashboard — see the "NAP Dashboard" block above.
   wos_nap_rules: SEED_NAP_RULES,
   wos_nap_alliances: SEED_NAP_ALLIANCES,
@@ -810,6 +882,9 @@ const Store = {
       this._set("wos_alliance_notices", SEED_ALLIANCE_NOTICES);
       this._set("wos_alliance_event_times", SEED_ALLIANCE_EVENT_TIMES);
       this._set("wos_alliance_discipline", SEED_ALLIANCE_DISCIPLINE);
+      this._set("wos_alliance_r4_jobs", SEED_ALLIANCE_R4_JOBS);
+      this._set("wos_alliance_tracking", SEED_ALLIANCE_TRACKING);
+      this._set("wos_alliance_reminders", SEED_ALLIANCE_REMINDERS);
       this._set("wos_nap_rules", SEED_NAP_RULES);
       this._set("wos_nap_alliances", SEED_NAP_ALLIANCES);
       this._set("wos_nap_fortress", SEED_NAP_FORTRESS);
@@ -1018,6 +1093,12 @@ const Store = {
   set allianceEventTimes(v) { this._synced("wos_alliance_event_times", SEED_ALLIANCE_EVENT_TIMES).set(v); },
   get allianceDiscipline() { return this._synced("wos_alliance_discipline", SEED_ALLIANCE_DISCIPLINE).get(); },
   set allianceDiscipline(v) { this._synced("wos_alliance_discipline", SEED_ALLIANCE_DISCIPLINE).set(v); },
+  get allianceR4Jobs() { return this._synced("wos_alliance_r4_jobs", SEED_ALLIANCE_R4_JOBS).get(); },
+  set allianceR4Jobs(v) { this._synced("wos_alliance_r4_jobs", SEED_ALLIANCE_R4_JOBS).set(v); },
+  get allianceTracking() { return this._synced("wos_alliance_tracking", SEED_ALLIANCE_TRACKING).get(); },
+  set allianceTracking(v) { this._synced("wos_alliance_tracking", SEED_ALLIANCE_TRACKING).set(v); },
+  get allianceReminders() { return this._synced("wos_alliance_reminders", SEED_ALLIANCE_REMINDERS).get(); },
+  set allianceReminders(v) { this._synced("wos_alliance_reminders", SEED_ALLIANCE_REMINDERS).set(v); },
 
   // NAP Dashboard — see the "NAP Dashboard" block above and
   // renderNapDashboard / renderNapAdminPanelHtml in app.js.

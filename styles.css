@@ -224,8 +224,21 @@ main.home-main{ max-width:1560px; }
 @media (max-width:760px){ .ops-hero-strap{ display:none; } }
 @media (max-width:600px){ .ops-hero-content{ padding:20px 16px; } }
 
+/* Compact hero variant — same snowy-fortress atmosphere as the home page's
+   hero, scaled down for use as a section header background (e.g. the
+   Alliance Dashboard header) rather than a full-page hero. Kept low
+   contrast per the "don't turn this into a full illustration" visual-polish
+   brief: shorter content padding + a slightly stronger vignette so header
+   text stays readable over the artwork. */
+.ops-hero.compact .ops-hero-content{ padding:18px 22px; align-items:center; }
+.ops-hero.compact .ops-hero-scene .vignette{ background:linear-gradient(90deg, rgba(10,6,20,0.72), rgba(10,6,20,0.38) 55%, rgba(10,6,20,0.78)); }
+@media (max-width:600px){ .ops-hero.compact .ops-hero-content{ padding:16px; } }
+
 .grid2{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
 @media (max-width:600px){ .grid2{ grid-template-columns: 1fr; } }
+.grid3{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
+@media (max-width:900px){ .grid3{ grid-template-columns: 1fr 1fr; } }
+@media (max-width:600px){ .grid3{ grid-template-columns: 1fr; } }
 
 .ops-grid{ display:grid; grid-template-columns:repeat(5, 1fr); gap:14px; }
 @media (max-width:1200px){ .ops-grid{ grid-template-columns:repeat(3, 1fr); } }
@@ -445,9 +458,13 @@ tr.enemy-row{ color: var(--accent-cyan); }
 .btn.primary{ background: var(--accent-purple); border-color: var(--accent-purple); color:#fff; }
 .btn.small{ padding:4px 10px; font-size:11px; }
 
-.pill-toggle{ display:flex; gap:8px; margin-bottom:14px; }
-.pill-toggle button{ flex:1; background:var(--panel-2); border:1px solid var(--border); color:var(--text-dim); padding:10px; border-radius:4px; font-size:12px; letter-spacing:.5px; }
-.pill-toggle button.active{ border-color: var(--accent-purple); color: var(--accent-purple); background: rgba(139,110,240,0.08); }
+.pill-toggle{ display:flex; gap:10px; margin-bottom:14px; }
+.pill-toggle button{ flex:1; background:var(--panel-2); border:1.5px solid var(--border); color:var(--text-dim); padding:11px 10px; border-radius:8px; font-size:12px; font-weight:700; letter-spacing:.06em; transition:border-color .12s, box-shadow .12s, color .12s, background .12s; }
+.pill-toggle button.active{
+  border-color: var(--console-magenta); color: #fff;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--console-magenta) 30%, transparent), color-mix(in srgb, var(--accent-purple) 22%, transparent));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--console-magenta) 45%, transparent), 0 0 18px -4px color-mix(in srgb, var(--console-magenta) 90%, transparent);
+}
 
 .slot-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
 @media (max-width:600px){ .slot-grid{ grid-template-columns:1fr; } }

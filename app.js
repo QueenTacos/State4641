@@ -877,6 +877,14 @@ const CARD_ICONS = {
   shield: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z"/></svg>`,
   spear: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5L15 9"/><path d="M13 5l6 6-3 3-6-6 3-3Z"/></svg>`,
   target: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.2"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg>`,
+  // Alliance Dashboard Overview stat-tile / empty-state icons.
+  bolt: `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>`,
+  pulse: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2 6 4-14 2 8h6"/></svg>`,
+  clock: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>`,
+  bell: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 4 1.5 5.5 2 6.5H4c.5-1 2-2.5 2-6.5Z"/><path d="M10 19.5a2 2 0 0 0 4 0"/></svg>`,
+  pin: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.5 7-11.5A7 7 0 0 0 5 9.5C5 14.5 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.4"/></svg>`,
+  clipboard: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M9 11h6M9 15h6"/></svg>`,
+  handshake: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12l4-3 4 3 3-2.5 4 3"/><path d="M8 9l3 3-1.5 1.5a1.6 1.6 0 0 1-2.3 0v0a1.6 1.6 0 0 1 0-2.3Z"/><path d="M14.5 12.5l-2 2a1.6 1.6 0 0 0 0 2.3v0a1.6 1.6 0 0 0 2.3 0l2.7-2.7"/><path d="M17 10l3 3-2.5 2.5"/></svg>`,
 };
 function icon(name) { return CARD_ICONS[name] || ""; }
 
@@ -3163,9 +3171,15 @@ function renderAdmin(el) {
     </div>
     ${
       adminSection === "state"
-        ? `<div class="admin-tabs">
-            ${stateDashboardTabs.map((tb) => `<button data-admtab="${tb.id}" class="${adminActiveTab === tb.id ? "active" : ""}">${tb.label}</button>`).join("")}
-          </div>`
+        ? `${dashboardHeroHtml(
+            "var(--console-magenta)",
+            "shield",
+            "STATE OPERATIONS",
+            "State Dashboard",
+            "Manage state-wide activity, coordination, and settings.",
+            dashboardStatusBadgeHtml("STATE STATUS")
+          )}
+          ${pillTabsHtml(stateDashboardTabs, adminActiveTab, "admtab")}`
         : ""
     }
     `
@@ -3864,69 +3878,338 @@ function renderAllianceDashboardTabHtml(user, officerScoped) {
   const svsSignups = Store.svsSignups;
 
   return `
-    <div class="panel" style="margin-bottom:14px;">
-      <div class="planner-header" style="margin-bottom:0;">
-        <strong>Alliance Dashboard</strong>
-        ${
-          officerScoped
-            ? `<span class="eyebrow">ALLIANCE · <strong style="color:var(--accent-gold);">${escapeHtml(viewingAlliance)}</strong></span>`
-            : `<div class="field" style="max-width:200px;margin:0;">
-                <select id="allianceDashSelect">
-                  ${alliances.map((a) => `<option value="${escapeHtml(a)}" ${a === viewingAlliance ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")}
-                </select>
-              </div>`
-        }
-      </div>
-    </div>
+    ${dashboardHeroHtml(
+      "var(--console-magenta)",
+      "shield",
+      "ALLIANCE OPERATIONS",
+      "Alliance Dashboard",
+      "Manage your alliance's activity, participation, and more.",
+      officerScoped
+        ? `<span style="display:flex;align-items:center;gap:8px;">${allianceBadgeHtml(viewingAlliance)}</span>`
+        : `<div style="display:flex;align-items:center;gap:8px;">
+            ${allianceBadgeHtml(viewingAlliance)}
+            <div class="field" style="max-width:220px;margin:0;">
+              <label style="font-size:9px;letter-spacing:.14em;color:var(--text-faint);">SELECT ALLIANCE</label>
+              <select id="allianceDashSelect">
+                ${alliances.map((a) => `<option value="${escapeHtml(a)}" ${a === viewingAlliance ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")}
+              </select>
+            </div>
+          </div>`
+    )}
 
-    <div class="admin-tabs" style="margin-bottom:14px;">
-      ${ALLIANCE_DASH_SUBTABS.map((tb) => `<button data-adsubtab="${tb.id}" class="${allianceDashSubTab === tb.id ? "active" : ""}">${tb.label.toUpperCase()}</button>`).join("")}
-    </div>
+    ${pillTabsHtml(ALLIANCE_DASH_SUBTABS, allianceDashSubTab, "adsubtab")}
 
     ${allianceDashSubTab !== "overview" ? "" : renderAllianceDashOverviewHtml(user, viewingAlliance, members, bagSubs, svsSignups)}
     ${allianceDashSubTab !== "calendar" ? "" : renderAllianceCalendarHtml(viewingAlliance, isAdmin(user))}
     ${allianceDashSubTab !== "notifications" ? "" : renderAllianceNotificationsPanelHtml(user, viewingAlliance, isAdmin(user))}
     ${allianceDashSubTab !== "event-times" ? "" : renderAllianceDashEventTimesHtml(viewingAlliance, isAdmin(user))}
-    ${allianceDashSubTab !== "participation" ? "" : renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, svsSignups)}
-    ${allianceDashSubTab !== "performance" ? "" : renderAllianceDashPerformanceHtml(viewingAlliance, members, bagSubs)}
+    ${allianceDashSubTab !== "participation" ? "" : renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, svsSignups, isAdmin(user))}
+    ${allianceDashSubTab !== "performance" ? "" : renderAllianceDashPerformanceHtml(viewingAlliance, members, bagSubs, isAdmin(user))}
     ${allianceDashSubTab !== "discipline" ? "" : renderAllianceDashDisciplineHtml(viewingAlliance, isAdmin(user))}
   `;
 }
 
+// Overview's 5-stat header row — MEMBERS is straightforward; TOTAL POWER,
+// ONLINE NOW, and OFFLINE > 3D are derived from the Ranking List / Time
+// Offline tracking sections further down this same page (never a second,
+// separately-entered figure), and UPCOMING EVENTS reuses the Alliance
+// Calendar's own occurrence-expansion helper.
+function allianceOverviewStats(viewingAlliance, members) {
+  const rankingCat = allianceTrackingCategory(viewingAlliance, "ranking");
+  const totalPower = members.reduce((sum, m) => sum + (rankingCat[m.id]?.power || 0), 0);
+  const offlineCat = allianceTrackingCategory(viewingAlliance, "timeOffline");
+  let onlineNow = 0, offlineOver3d = 0;
+  members.forEach((m) => {
+    const text = (offlineCat[m.id]?.timeOfflineText || "").trim().toLowerCase();
+    if (text === "online") onlineNow++;
+    const dayMatch = text.match(/(\d+)\s*d/);
+    if (dayMatch && Number(dayMatch[1]) >= 3) offlineOver3d++;
+  });
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const upcomingEnd = new Date(today);
+  upcomingEnd.setDate(upcomingEnd.getDate() + 30);
+  const upcomingCount = viewingAlliance ? allianceEventOccurrencesInRange(viewingAlliance, today, upcomingEnd).length : 0;
+  return { totalPower, onlineNow, offlineOver3d, upcomingCount };
+}
+
+function renderEventTimesOverviewCardHtml(viewingAlliance, canManage) {
+  const times = (Store.allianceEventTimes[viewingAlliance] || []).slice(0, 6);
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--accent-green)")}">
+      ${accentPanelHeaderHtml("var(--accent-green)", "🕐", `Event Times (${escapeHtml(viewingAlliance)})`, canManage ? `<button data-adgoto="event-times" class="btn small primary">+ Add Event Time</button>` : "")}
+      ${
+        times.length
+          ? `<div style="overflow-x:auto;margin-top:10px;">
+              <table>
+                <thead><tr><th>EVENT</th><th>TIME (UTC)</th><th>NOTES</th></tr></thead>
+                <tbody>
+                  ${times.map((t) => `<tr><td>${escapeHtml(t.title)}</td><td style="color:var(--accent-green);font-variant-numeric:tabular-nums;">${escapeHtml(t.timeText)}</td><td>${escapeHtml(t.notes || "—")}</td></tr>`).join("")}
+                </tbody>
+              </table>
+            </div>`
+          : emptyStateHtml("clock", "No event times set yet.", canManage ? "Add one to keep the alliance in sync." : "Check back once leadership sets one.", "var(--accent-green)")
+      }
+    </div>
+  `;
+}
+
+function renderQuickActionsCardHtml() {
+  const actions = [
+    { tab: "notifications", label: "Manage Notifications", icon: "bell" },
+    { tab: "event-times", label: "Update Event Times", icon: "clock" },
+    { tab: "participation", label: "Participation Tracking", icon: "trophy" },
+    { tab: "performance", label: "View Performance", icon: "target" },
+    { tab: "discipline", label: "Rule Breaking Log", icon: "shield" },
+    { tab: "calendar", label: "View Alliance Calendar", icon: "calendar" },
+  ];
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--console-magenta)")}">
+      ${accentPanelHeaderHtml("var(--console-magenta)", "⚡", "Quick Actions")}
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px;">
+        ${actions
+          .map(
+            (a) => `
+          <button data-adgoto="${a.tab}" class="btn small" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;">
+            <span style="flex:none;width:18px;height:18px;color:var(--console-magenta);">${icon(a.icon)}</span>
+            <span style="flex:1;">${a.label}</span>
+            <span style="opacity:.6;">›</span>
+          </button>`
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderNotificationsOverviewCardHtml(viewingAlliance, canManage) {
+  const notices = Store.allianceNotices
+    .map(normalizeAllianceNotice)
+    .filter((n) => n.allianceTag === viewingAlliance)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, 4);
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--console-magenta)")}">
+      ${accentPanelHeaderHtml("var(--console-magenta)", "📣", "Alliance Notifications", canManage ? `<button data-adgoto="notifications" class="btn small primary">+ New Notice</button>` : "")}
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
+        ${
+          notices.length
+            ? notices
+                .map(
+                  (n) => `
+          <div style="background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:8px 10px;display:flex;gap:8px;justify-content:space-between;align-items:flex-start;">
+            <div style="min-width:0;flex:1;">
+              <div style="font-size:12px;font-weight:700;">${escapeHtml(n.eventTitle)} <span style="font-weight:400;color:var(--text-faint);font-size:10.5px;">${fmtUtcDate(n.updatedAt)}</span></div>
+              <div style="font-size:11.5px;color:var(--text-dim);white-space:pre-wrap;overflow-wrap:anywhere;max-height:36px;overflow:hidden;">${
+                n.noticeText ? escapeHtml(n.noticeText) : `<span style="color:var(--text-faint);">(empty)</span>`
+              }</div>
+            </div>
+            <button data-ovcopy="${n.id}" class="btn small" style="flex:none;">Copy</button>
+          </div>`
+                )
+                .join("")
+            : `<div class="empty">No notices yet.</div>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderParticipationOverviewCardHtml(viewingAlliance, members) {
+  const total = members.length || 1;
+  const pct = (category, field) => {
+    const cat = allianceTrackingCategory(viewingAlliance, category);
+    return Math.round((members.filter((m) => cat[m.id]?.[field]).length / total) * 100);
+  };
+  const beartrapPct = (() => {
+    const cat = allianceTrackingCategory(viewingAlliance, "beartrap");
+    return Math.round((members.filter((m) => cat[m.id]?.assignment && cat[m.id].assignment !== "NONE").length / total) * 100);
+  })();
+  const rows = [
+    { label: "Fortress", pct: pct("fortress", "participated"), color: "var(--console-icecyan)" },
+    { label: "Foundry", pct: pct("foundry", "participated"), color: "var(--console-magenta)" },
+    { label: "Canyon Clash", pct: pct("canyon", "participated"), color: "var(--accent-purple)" },
+    { label: "Crazy Joe", pct: pct("crazyjoe", "round1"), color: "var(--console-icy-blue)" },
+    { label: "Bear Trap", pct: beartrapPct, color: "var(--accent-amber)" },
+    { label: "Alliance Championship", pct: pct("champTrack", "deployed"), color: "var(--accent-green)" },
+  ];
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--console-icecyan)")}">
+      ${accentPanelHeaderHtml("var(--console-icecyan)", "📈", "Participation Overview", `<button data-adgoto="participation" class="btn small">View All ›</button>`)}
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+        ${rows
+          .map(
+            (r) => `
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-dim);margin-bottom:4px;"><span>${r.label}</span><span style="font-weight:700;color:${r.color};">${r.pct}%</span></div>
+            <div style="height:8px;border-radius:4px;background:var(--panel-2);overflow:hidden;"><div style="height:100%;width:${r.pct}%;background:${r.color};border-radius:4px;"></div></div>
+          </div>`
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderRuleViolationsOverviewCardHtml(viewingAlliance) {
+  const log = (Store.allianceDiscipline[viewingAlliance] || []).slice().sort((a, b) => b.createdAt - a.createdAt).slice(0, 4);
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--accent-red)")}">
+      ${accentPanelHeaderHtml("var(--accent-red)", "🛡️", "Recent Rule Violations", `<button data-adgoto="discipline" class="btn small">View All ›</button>`)}
+      <div style="overflow-x:auto;margin-top:10px;">
+        <table>
+          <thead><tr><th>PLAYER</th><th>OFFENSE</th><th>SEVERITY</th></tr></thead>
+          <tbody>
+            ${
+              log.length
+                ? log
+                    .map(
+                      (e) => `<tr><td>${escapeHtml(e.memberName)}</td><td>${escapeHtml(e.note)}</td><td><span class="status-badge ${e.severity === "strike" ? "open" : e.severity === "warning" ? "planned" : "done"}">${e.severity.toUpperCase()}</span></td></tr>`
+                    )
+                    .join("")
+                : `<tr><td colspan="3">No entries yet.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderMobilizationOverviewCardHtml(viewingAlliance, members) {
+  const cat = allianceTrackingCategory(viewingAlliance, "mobilization");
+  const totalPoints = members.reduce((sum, m) => sum + (cat[m.id]?.finalPoints || 0), 0);
+  const enteredCount = members.filter((m) => cat[m.id]?.finalPoints != null).length;
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--accent-red)")}">
+      ${accentPanelHeaderHtml("var(--accent-red)", "🚩", "Alliance Mobilization")}
+      <div style="display:flex;gap:24px;margin-top:12px;flex-wrap:wrap;">
+        <div><div style="font-size:11px;color:var(--text-faint);letter-spacing:.05em;">FINAL POINTS (TOTAL)</div><div style="font-size:22px;font-weight:800;color:var(--accent-red);">${fmtNum(totalPoints)}</div></div>
+        <div><div style="font-size:11px;color:var(--text-faint);letter-spacing:.05em;">MEMBERS REPORTED</div><div style="font-size:22px;font-weight:800;">${enteredCount} <span style="font-size:13px;color:var(--text-faint);">/ ${members.length}</span></div></div>
+      </div>
+      <button data-adgoto="performance" class="btn small" style="margin-top:12px;">View Full List ›</button>
+    </div>
+  `;
+}
+
+function renderBearTrapOverviewCardHtml(viewingAlliance, members) {
+  const cat = allianceTrackingCategory(viewingAlliance, "beartrap");
+  const optionLabel = { NONE: "Neither", BT1: "Bear Trap 1", BT2: "Bear Trap 2", BOTH: "Both" };
+  const rows = members.slice(0, 6);
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--accent-amber)")}">
+      ${accentPanelHeaderHtml("var(--accent-amber)", "🐻", "Bear Trap Assignments", `<button data-adgoto="participation" class="btn small">View All ›</button>`)}
+      <div style="overflow-x:auto;margin-top:10px;">
+        <table>
+          <thead><tr><th>PLAYER</th><th>TRAP</th></tr></thead>
+          <tbody>
+            ${
+              rows.length
+                ? rows
+                    .map((m) => {
+                      const raw = cat[m.id]?.assignment;
+                      const v = BEAR_TRAP_ASSIGNMENTS.includes(raw) ? raw : "NONE";
+                      return `<tr><td>${escapeHtml(m.name)}</td><td>${optionLabel[v]}</td></tr>`;
+                    })
+                    .join("")
+                : `<tr><td colspan="2">No members yet.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderRemindersOverviewCardHtml(viewingAlliance, canManage) {
+  const reminders = Store.allianceReminders[viewingAlliance] || [];
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--accent-purple)")}">
+      ${accentPanelHeaderHtml("var(--accent-purple)", "📌", "Today's Reminders", "")}
+      ${
+        canManage
+          ? `<div style="display:flex;gap:6px;margin-top:10px;">
+              <input id="remNewText" type="text" placeholder="Add a reminder…" style="${trackInputStyle}flex:1;" maxlength="140" />
+              <button class="btn small primary" id="remAdd">+ Add</button>
+            </div>`
+          : ""
+      }
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px;">
+        ${
+          reminders.length
+            ? reminders
+                .map(
+                  (r) => `
+          <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;${r.done ? "color:var(--text-faint);text-decoration:line-through;" : ""}">
+            <input type="checkbox" ${r.done ? "checked" : ""} ${canManage ? `data-remtoggle="${r.id}"` : "disabled"} />
+            <span style="flex:1;">${escapeHtml(r.text)}</span>
+            ${canManage ? `<button data-remdel="${r.id}" class="btn small" style="color:var(--accent-red);padding:2px 6px;">✕</button>` : ""}
+          </label>`
+                )
+                .join("")
+            : `<div class="empty">No reminders yet.</div>`
+        }
+      </div>
+    </div>
+  `;
+}
+
 function renderAllianceDashOverviewHtml(user, viewingAlliance, members, bagSubs, svsSignups) {
-  const submittedCount = members.filter((m) => bagSubs[m.id]).length;
-  const signedUpCount = members.filter((m) => svsSignups[m.id]).length;
   const canManageR4 = canManageR4Roles(user);
+  const canManage = isAdmin(user);
   // MEMBER role never reaches here (isAdmin gates the whole page), and R4
   // itself doesn't get canManageR4Roles — only ADMIN/LEADER see this list.
   const roster = members.filter((m) => ["member", "officer", "leader"].includes(m.role));
+  const stats = allianceOverviewStats(viewingAlliance, members);
 
   return `
-    <div class="stat-row" style="margin-bottom:14px;">
-      <div class="stat-card" style="--accent:var(--accent-purple);">
-        <div class="stat-icon"></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+      <div class="stat-card" style="--accent:var(--accent-purple);flex:1 1 160px;">
+        <div class="stat-icon">${icon("users")}</div>
         <div class="label">MEMBERS</div>
         <div class="value">${members.length}</div>
       </div>
-      <div class="stat-card" style="--accent:var(--accent-teal);">
-        <div class="stat-icon"></div>
-        <div class="label">BAGS SUBMITTED</div>
-        <div class="value">${submittedCount} <span style="font-size:13px;color:var(--text-faint);">/ ${members.length}</span></div>
+      <div class="stat-card" style="--accent:var(--accent-green);flex:1 1 160px;">
+        <div class="stat-icon">${icon("bolt")}</div>
+        <div class="label">TOTAL POWER</div>
+        <div class="value">${fmtNum(stats.totalPower)}</div>
       </div>
-      <div class="stat-card" style="--accent:var(--accent-amber);">
-        <div class="stat-icon"></div>
-        <div class="label">SVS SIGNED UP</div>
-        <div class="value">${signedUpCount} <span style="font-size:13px;color:var(--text-faint);">/ ${members.length}</span></div>
+      <div class="stat-card" style="--accent:var(--accent-green);flex:1 1 160px;">
+        <div class="stat-icon">${icon("pulse")}</div>
+        <div class="label">ONLINE NOW</div>
+        <div class="value">${stats.onlineNow}</div>
       </div>
+      <div class="stat-card" style="--accent:var(--accent-red);flex:1 1 160px;">
+        <div class="stat-icon">${icon("clock")}</div>
+        <div class="label">OFFLINE &gt; 3D</div>
+        <div class="value">${stats.offlineOver3d}</div>
+      </div>
+      <div class="stat-card" style="--accent:var(--console-icecyan);flex:1 1 160px;">
+        <div class="stat-icon">${icon("calendar")}</div>
+        <div class="label">UPCOMING EVENTS</div>
+        <div class="value">${stats.upcomingCount}</div>
+      </div>
+    </div>
+
+    <div class="grid3">
+      ${renderR4JobsSectionHtml(viewingAlliance, members, canManage)}
+      ${renderEventTimesOverviewCardHtml(viewingAlliance, canManage)}
+      ${renderQuickActionsCardHtml()}
+      ${renderNotificationsOverviewCardHtml(viewingAlliance, canManage)}
+      ${renderParticipationOverviewCardHtml(viewingAlliance, members)}
+      ${renderRuleViolationsOverviewCardHtml(viewingAlliance)}
+      ${renderMobilizationOverviewCardHtml(viewingAlliance, members)}
+      ${renderBearTrapOverviewCardHtml(viewingAlliance, members)}
+      ${renderRemindersOverviewCardHtml(viewingAlliance, canManage)}
     </div>
 
     ${
       !canManageR4
         ? ""
         : `
-    <div class="panel">
-      <div class="planner-header"><strong>R4 Management</strong></div>
-      <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">Promote a member to R4, or remove an existing R4 — for ${escapeHtml(viewingAlliance)} only. Changing who's LEADER happens in Admin → Members.</p>
+    <div class="panel" style="${accentPanelStyle("var(--console-icecyan)")}margin-top:14px;">
+      ${accentPanelHeaderHtml("var(--console-icecyan)", "🛡️", "R4 Management")}
+      <p style="font-size:11.5px;color:var(--text-dim);margin:8px 0 10px;">Promote a member to R4, or remove an existing R4 — for ${escapeHtml(viewingAlliance)} only. Changing who's LEADER happens in Admin → Members.</p>
       <div style="overflow-x:auto;">
         <table>
           <thead><tr><th>GAMER NAME</th><th>ROLE</th><th></th></tr></thead>
@@ -3956,6 +4239,12 @@ function renderAllianceDashOverviewHtml(user, viewingAlliance, members, bagSubs,
       </div>
     </div>`
     }
+
+    <div class="grid2" style="margin-top:14px;">
+      ${renderRankingListSectionHtml(viewingAlliance, members, canManage)}
+      ${renderTimeOfflineSectionHtml(viewingAlliance, members, canManage)}
+      ${renderContributionsSectionHtml(viewingAlliance, members, canManage)}
+    </div>
   `;
 }
 
@@ -4375,7 +4664,7 @@ function renderAllianceDashEventTimesHtml(viewingAlliance, canManage) {
   `;
 }
 
-function renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, svsSignups) {
+function renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, svsSignups, canManage) {
   const rows = members
     .map((m) => ({ m, bag: !!bagSubs[m.id], svs: !!svsSignups[m.id] }))
     .sort((a, b) => Number(a.bag && a.svs) - Number(b.bag && b.svs) || a.m.name.localeCompare(b.m.name));
@@ -4409,10 +4698,12 @@ function renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, 
         </table>
       </div>
     </div>
+
+    ${renderParticipationTrackersHtml(viewingAlliance, members, canManage)}
   `;
 }
 
-function renderAllianceDashPerformanceHtml(viewingAlliance, members, bagSubs) {
+function renderAllianceDashPerformanceHtml(viewingAlliance, members, bagSubs, canManage) {
   const ranked = members
     .map((m) => {
       const sub = bagSubs[m.id];
@@ -4441,6 +4732,8 @@ function renderAllianceDashPerformanceHtml(viewingAlliance, members, bagSubs) {
         }
       </div>
     </div>
+
+    ${renderMobilizationSectionHtml(viewingAlliance, members, canManage)}
   `;
 }
 
@@ -4612,6 +4905,643 @@ function wireAllianceDashboardTab(el, user, officerScoped) {
   );
 
   if (allianceDashSubTab === "notifications") wireAllianceNotificationsPanel(el, user, viewingAlliance, isAdmin(user));
+
+  // Additive Alliance Dashboard sections (R4 Jobs, Ranking List, Time
+  // Offline, Contributions, Fortress/Foundry/Canyon Clash/Crazy Joe/Bear
+  // Trap/Alliance Championship tracking, Alliance Mobilization Final
+  // Points) — see the big comment block above renderR4JobsSectionHtml
+  // below. Wired unconditionally (cheap querySelectorAll no-ops when a
+  // section isn't the active sub-tab); every handler re-checks isAdmin(user)
+  // and viewingAlliance itself, same defense-in-depth pattern as Event
+  // Times/Discipline above.
+  const allianceDashMembers = Store.members.filter((m) => m.alliance === viewingAlliance);
+  wireR4JobsSection(el, user, viewingAlliance, allianceDashMembers, isAdmin(user));
+  wireAllianceTrackingInputs(el, user, viewingAlliance, isAdmin(user));
+  el.querySelectorAll("[data-parttrackertab]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      allianceParticipationTrackerTab = btn.dataset.parttrackertab;
+      router();
+    })
+  );
+
+  // Overview hub — "jump to tab" shortcut buttons scattered across the new
+  // Overview cards (Quick Actions, and each card's own "View All ›" style
+  // header button). Same tab-switch mechanics as [data-adsubtab] above.
+  el.querySelectorAll("[data-adgoto]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      allianceDashSubTab = btn.dataset.adgoto;
+      router();
+    })
+  );
+
+  // Overview hub — Alliance Notifications card Copy button. Mirrors the
+  // existing [data-ancopy] handler on the Notifications tab itself exactly
+  // (clipboard-then-execCommand fallback, brief "COPIED ✓" flash).
+  el.querySelectorAll("[data-ovcopy]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const n = Store.allianceNotices.find((x) => x.id === btn.dataset.ovcopy);
+      if (!n) return;
+      try {
+        await navigator.clipboard.writeText(n.noticeText || "");
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = n.noticeText || "";
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      const original = btn.textContent;
+      btn.textContent = "COPIED ✓";
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    })
+  );
+
+  // Overview hub — Today's Reminders. A tiny shared per-alliance checklist
+  // (Store.allianceReminders — see data.js). canManage/viewingAlliance
+  // re-checked in every handler, same defense-in-depth pattern used
+  // throughout this function.
+  const addReminder = () => {
+    if (!isAdmin(user) || !viewingAlliance) return;
+    const input = el.querySelector("#remNewText");
+    const text = (input?.value || "").trim();
+    if (!text) return;
+    const all = Store.allianceReminders;
+    const list = all[viewingAlliance] || [];
+    all[viewingAlliance] = [...list, { id: "rem" + Date.now(), text, done: false, createdAt: Date.now() }];
+    Store.allianceReminders = all;
+    router();
+  };
+  el.querySelector("#remAdd")?.addEventListener("click", addReminder);
+  el.querySelector("#remNewText")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); addReminder(); }
+  });
+  el.querySelectorAll("[data-remtoggle]").forEach((cb) =>
+    cb.addEventListener("change", () => {
+      if (!isAdmin(user) || !viewingAlliance) return;
+      const all = Store.allianceReminders;
+      const list = all[viewingAlliance] || [];
+      const idx = list.findIndex((r) => r.id === cb.dataset.remtoggle);
+      if (idx === -1) return;
+      list[idx] = { ...list[idx], done: !list[idx].done };
+      all[viewingAlliance] = list;
+      Store.allianceReminders = all;
+      router();
+    })
+  );
+  el.querySelectorAll("[data-remdel]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (!isAdmin(user) || !viewingAlliance) return;
+      const all = Store.allianceReminders;
+      all[viewingAlliance] = (all[viewingAlliance] || []).filter((r) => r.id !== btn.dataset.remdel);
+      Store.allianceReminders = all;
+      router();
+    })
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Alliance Dashboard — ADDITIVE sections on top of the existing Overview /
+// Participation / Performance tabs (see the "RESTRUCTURE DASHBOARD ACCESS"
+// spec's Alliance Dashboard block for the original 7 tabs — none of that is
+// touched here). Everything below is new, purely additive functionality:
+//   Overview:      R4 Current Jobs, Ranking List, Time Offline, Contributions
+//   Participation: Fortress / Foundry / Canyon Clash / Crazy Joe /
+//                  Bear Trap / Alliance Championship tracking (tabbed)
+//   Performance:   Alliance Mobilization Final Points
+//
+// Same permission model as the rest of the Alliance Dashboard throughout:
+// `canManage` is isAdmin(user) at every call site (true for ADMIN/LEADER/R4,
+// false for MEMBER — see isAdmin()'s definition), and viewingAlliance is
+// already locked to the signed-in LEADER/R4's own alliance (or whatever
+// ADMIN picked) by the time any of this renders — see
+// allianceDashboardViewingAlliance(). MEMBER can view every section below
+// (read-only, inputs render as plain text/disabled checkboxes) since
+// nothing in the original spec restricts VIEWING these sections to
+// non-members, only editing.
+//
+// Data model: R4 Jobs is its own freeform per-alliance task list
+// (Store.allianceR4Jobs). Every other section below is a PER-MEMBER record
+// keyed by that member's own playerId within Store.allianceTracking (see
+// data.js) — rows are always driven by the alliance's CURRENT member list
+// passed in as `members`, never a separately typed roster, so a new member
+// automatically gets a blank row and a removed member's rows simply stop
+// appearing. See updateAllianceTrackingField() in data.js for the
+// allianceId+playerId+category upsert this all funnels through.
+// ---------------------------------------------------------------------------
+
+// Small helper — an "accented" panel matching this app's existing
+// .stat-card glow treatment (see styles.css), applied here via inline style
+// so these new cards read as a distinct, color-coded group (per the
+// reference layout) without touching global CSS or introducing any new
+// colors — every accent below is one of this project's own existing
+// --accent-*/--console-* tokens.
+// Rounded pill tab bar — used ONLY by the Alliance Dashboard's own inner
+// sub-tab row (matching the reference mockup's pill-style tabs), built with
+// inline styles so it never touches the shared .admin-tabs class the Admin
+// page's State/NAP Dashboard sections and officer-scoped tab bar still use
+// unchanged elsewhere.
+function pillTabsHtml(items, activeId, dataAttr) {
+  return `<div style="display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin;margin-bottom:14px;padding-bottom:2px;">
+    ${items
+      .map(
+        (tb) => `<button data-${dataAttr}="${tb.id}" style="border-radius:999px;padding:8px 16px;font-size:11.5px;font-weight:700;letter-spacing:.03em;border:1.5px solid ${
+          activeId === tb.id ? "var(--console-magenta)" : "var(--console-icecyan)"
+        };background:${activeId === tb.id ? "var(--console-magenta)" : "color-mix(in srgb, var(--console-icecyan) 10%, var(--console-bg))"};color:${activeId === tb.id ? "#fff" : "var(--console-icy-blue)"};cursor:pointer;white-space:nowrap;flex:none;${
+          activeId === tb.id
+            ? "box-shadow:0 0 14px -3px color-mix(in srgb, var(--console-magenta) 90%, transparent);"
+            : "box-shadow:0 0 8px -4px color-mix(in srgb, var(--console-icecyan) 70%, transparent);"
+        }">${tb.label.toUpperCase()}</button>`
+      )
+      .join("")}
+  </div>`;
+}
+
+function accentPanelStyle(accentVar) {
+  return `border:2px solid ${accentVar};box-shadow:0 0 0 1px color-mix(in srgb, ${accentVar} 35%, transparent), 0 0 22px -8px color-mix(in srgb, ${accentVar} 95%, transparent);`;
+}
+// Shared hero/header panel for the three top-level Admin dashboards (State /
+// NAP / Alliance) — same snowy-fortress-backed ".ops-hero.compact" treatment
+// as the home page's own hero, so all three read as one visual system per
+// the "RESTYLE THE THREE MAIN ADMIN DASHBOARDS" visual-polish pass. Purely
+// presentational: callers still own their own functional content (alliance
+// selector, status badges, etc.) via `rightHtml`.
+function dashboardHeroHtml(accentVar, iconName, eyebrow, title, desc, rightHtml) {
+  return `
+    <div class="ops-hero compact" style="margin:0 0 14px;border-color:${accentVar};box-shadow:0 0 0 1px color-mix(in srgb, ${accentVar} 35%, transparent), 0 0 26px -10px color-mix(in srgb, ${accentVar} 95%, transparent);">
+      <div class="ops-hero-scene" style="--art:${cardArtUri("hero")};">
+        <div class="snowfall"></div>
+        <div class="vignette"></div>
+      </div>
+      <div class="ops-hero-content">
+        <span class="ops-hero-bar" style="background:${accentVar};"></span>
+        <div style="flex:1;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="flex:none;width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb, ${accentVar} 20%, transparent);border:1.5px solid ${accentVar};box-shadow:0 0 14px -2px color-mix(in srgb, ${accentVar} 85%, transparent);color:${accentVar};">
+              <span style="width:19px;height:19px;display:block;">${icon(iconName)}</span>
+            </div>
+            <div>
+              <div class="ops-hero-eyebrow" style="color:${accentVar};">${eyebrow}</div>
+              <div style="font-size:20px;font-weight:800;color:#fff;letter-spacing:.01em;font-family:var(--font-hud);">${title}</div>
+              <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">${desc}</div>
+            </div>
+          </div>
+          ${rightHtml || ""}
+        </div>
+      </div>
+    </div>
+  `;
+}
+// Small decorative "X STATUS — ● ACTIVE" pill for a dashboard hero header's
+// right-hand side (see dashboardHeroHtml). Purely presentational — there's
+// no underlying active/inactive data field for the State or NAP dashboards,
+// so this never claims to be an interactive control.
+function dashboardStatusBadgeHtml(label) {
+  return `<div style="text-align:right;">
+    <div style="font-size:9px;letter-spacing:.14em;color:var(--text-faint);margin-bottom:4px;">${label}</div>
+    <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;background:color-mix(in srgb, var(--accent-green) 18%, transparent);border:1px solid var(--accent-green);color:var(--accent-green);font-size:11px;font-weight:700;letter-spacing:.05em;">● ACTIVE</span>
+  </div>`;
+}
+// A small colored icon badge + title, matching this app's existing
+// .stat-icon circular-badge treatment (see styles.css) — reused here via
+// inline style so each new card reads with its own accent identity at a
+// glance, same idea as the reference mockups' icon-badge headers.
+function accentPanelHeaderHtml(accentVar, emoji, title, extraHtml) {
+  return `<div class="planner-header" style="margin-bottom:0;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div style="flex:none;width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;background:color-mix(in srgb, ${accentVar} 22%, transparent);border:1.5px solid ${accentVar};box-shadow:0 0 12px -2px color-mix(in srgb, ${accentVar} 85%, transparent);">${emoji}</div>
+      <strong style="color:${accentVar};font-size:13.5px;letter-spacing:.02em;">${title}</strong>
+    </div>
+    ${extraHtml || ""}
+  </div>`;
+}
+// Polished empty state for a card whose list/table has no rows yet — a
+// centered icon (from CARD_ICONS), a short message, and optional helper
+// text — replacing plain "No X yet." text-only placeholders per the
+// Alliance Dashboard visual-polish pass. `accentVar` tints the icon badge
+// to match the card's own border color.
+function emptyStateHtml(iconName, message, helper, accentVar) {
+  const accent = accentVar || "var(--text-faint)";
+  return `<div style="text-align:center;padding:22px 12px;color:var(--text-faint);">
+    <div style="width:34px;height:34px;margin:0 auto 8px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb, ${accent} 14%, transparent);border:1.5px solid color-mix(in srgb, ${accent} 45%, transparent);color:${accent};">
+      <span style="width:16px;height:16px;display:block;">${icon(iconName)}</span>
+    </div>
+    <div style="font-size:12.5px;color:var(--text-dim);">${message}</div>
+    ${helper ? `<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${helper}</div>` : ""}
+  </div>`;
+}
+
+function openR4JobModal(viewingAlliance, members, existing, rerender) {
+  document.getElementById("r4jobModalOverlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.id = "r4jobModalOverlay";
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <button class="close">&times;</button>
+      <h3>${existing ? "Edit Job" : "Add Job"}</h3>
+      <div class="field">
+        <label>JOB / TASK</label>
+        <input id="r4jmTask" value="${existing ? escapeHtml(existing.task) : ""}" placeholder="e.g. Recruit 5 new members" />
+      </div>
+      <div class="field">
+        <label>ASSIGNED TO</label>
+        <select id="r4jmAssigned">
+          <option value="">Unassigned</option>
+          ${members.map((m) => `<option value="${m.id}" ${existing?.assignedTo === m.id ? "selected" : ""}>${escapeHtml(m.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>DUE DATE</label><input id="r4jmDue" type="date" value="${existing?.dueDate || ""}" /></div>
+        <div class="field">
+          <label>STATUS</label>
+          <select id="r4jmStatus">
+            <option value="NOT_STARTED" ${!existing || existing.status === "NOT_STARTED" ? "selected" : ""}>Not Started</option>
+            <option value="IN_PROGRESS" ${existing?.status === "IN_PROGRESS" ? "selected" : ""}>In Progress</option>
+            <option value="COMPLETED" ${existing?.status === "COMPLETED" ? "selected" : ""}>Completed</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>NOTES (OPTIONAL)</label>
+        <textarea id="r4jmNotes" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:9px 10px;font-size:13px;min-height:60px;resize:vertical;">${existing?.notes ? escapeHtml(existing.notes) : ""}</textarea>
+      </div>
+      <div id="r4jmErr" style="color:var(--accent-red);font-size:11.5px;margin:-2px 0 6px;min-height:16px;"></div>
+      <button class="btn primary" id="r4jmSave" style="width:100%;">${existing ? "SAVE CHANGES" : "ADD JOB"}</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".close").onclick = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  overlay.querySelector("#r4jmSave").addEventListener("click", () => {
+    const errEl = overlay.querySelector("#r4jmErr");
+    const task = overlay.querySelector("#r4jmTask").value.trim();
+    if (!task) { errEl.textContent = "Job / Task is required."; return; }
+    const assignedTo = overlay.querySelector("#r4jmAssigned").value || null;
+    const assignedMember = members.find((m) => m.id === assignedTo);
+    const record = {
+      id: existing?.id || "r4job" + Date.now(),
+      task,
+      assignedTo,
+      assignedToName: assignedMember ? assignedMember.name : "",
+      dueDate: overlay.querySelector("#r4jmDue").value,
+      status: overlay.querySelector("#r4jmStatus").value,
+      notes: overlay.querySelector("#r4jmNotes").value.trim(),
+      updatedAt: Date.now(),
+    };
+    const all = Store.allianceR4Jobs;
+    const list = all[viewingAlliance] || [];
+    all[viewingAlliance] = existing ? list.map((j) => (j.id === existing.id ? record : j)) : [...list, record];
+    Store.allianceR4Jobs = all;
+    overlay.remove();
+    rerender();
+  });
+}
+
+function renderR4JobsSectionHtml(viewingAlliance, members, canManage) {
+  const jobs = (Store.allianceR4Jobs[viewingAlliance] || []).map(normalizeR4Job).sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999") || a.task.localeCompare(b.task));
+  const badgeClass = (s) => (s === "COMPLETED" ? "done" : s === "IN_PROGRESS" ? "planned" : "open");
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--console-icecyan)")}">
+      ${accentPanelHeaderHtml("var(--console-icecyan)", "📋", `R4 Current Jobs (${jobs.length})`, canManage ? `<button class="btn small primary" id="r4jobAdd">+ Add Job</button>` : "")}
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">A manual task list for this alliance's leadership.</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin:10px 0 ${canManage ? "12px" : "0"};">
+        ${
+          jobs.length
+            ? jobs
+                .map(
+                  (j) => `
+          <div style="display:flex;gap:10px;align-items:flex-start;background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:8px 10px;flex-wrap:wrap;justify-content:space-between;">
+            <div style="flex:1 1 200px;min-width:0;">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;">
+                <strong style="font-size:12.5px;">${escapeHtml(j.task)}</strong>
+                <span class="status-badge ${badgeClass(j.status)}">${j.status.replace("_", " ")}</span>
+              </div>
+              <div style="font-size:11.5px;color:var(--text-dim);">${j.assignedToName ? `Assigned to <strong>${escapeHtml(j.assignedToName)}</strong>` : "Unassigned"}${j.dueDate ? ` · due ${escapeHtml(j.dueDate)}` : ""}</div>
+              ${j.notes ? `<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${escapeHtml(j.notes)}</div>` : ""}
+            </div>
+            ${
+              !canManage
+                ? ""
+                : `<div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    ${j.status !== "COMPLETED" ? `<button data-r4jobcomplete="${j.id}" class="btn small primary">Mark Complete</button>` : ""}
+                    <button data-r4jobedit="${j.id}" class="btn small">Edit</button>
+                    <button data-r4jobdel="${j.id}" class="btn small" style="color:var(--accent-red);">Delete</button>
+                  </div>`
+            }
+          </div>`
+                )
+                .join("")
+            : emptyStateHtml("clipboard", "No jobs yet.", "Add a task to track alliance leadership work.", "var(--console-icecyan)")
+        }
+      </div>
+      ${canManage ? "" : `<p style="font-size:11px;color:var(--text-dim);margin:0;">Read-only — only Admin, this alliance's Leader, or R4 can manage jobs.</p>`}
+    </div>
+  `;
+}
+
+function wireR4JobsSection(el, user, viewingAlliance, members, canManage) {
+  el.querySelector("#r4jobAdd")?.addEventListener("click", () => {
+    if (!canManage || !viewingAlliance) return;
+    openR4JobModal(viewingAlliance, members, null, () => router());
+  });
+  el.querySelectorAll("[data-r4jobedit]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (!canManage || !viewingAlliance) return;
+      const job = (Store.allianceR4Jobs[viewingAlliance] || []).map(normalizeR4Job).find((j) => j.id === btn.dataset.r4jobedit);
+      if (!job) return;
+      openR4JobModal(viewingAlliance, members, job, () => router());
+    })
+  );
+  el.querySelectorAll("[data-r4jobdel]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (!canManage || !viewingAlliance) return;
+      if (!confirm("Delete this job?")) return;
+      const all = Store.allianceR4Jobs;
+      all[viewingAlliance] = (all[viewingAlliance] || []).filter((j) => j.id !== btn.dataset.r4jobdel);
+      Store.allianceR4Jobs = all;
+      router();
+    })
+  );
+  el.querySelectorAll("[data-r4jobcomplete]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (!canManage || !viewingAlliance) return;
+      const all = Store.allianceR4Jobs;
+      const list = all[viewingAlliance] || [];
+      const idx = list.findIndex((j) => j.id === btn.dataset.r4jobcomplete);
+      if (idx === -1) return;
+      list[idx] = { ...list[idx], status: "COMPLETED", updatedAt: Date.now() };
+      all[viewingAlliance] = list;
+      Store.allianceR4Jobs = all;
+      router();
+    })
+  );
+}
+
+const trackInputStyle = "background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:3px;padding:5px 8px;font-size:12px;";
+
+function renderRankingListSectionHtml(viewingAlliance, members, canManage) {
+  const cat = allianceTrackingCategory(viewingAlliance, "ranking");
+  const rows = members
+    .map((m) => ({ m, rec: cat[m.id] || {} }))
+    .sort((a, b) => (a.rec.rank ?? Infinity) - (b.rec.rank ?? Infinity) || a.m.name.localeCompare(b.m.name));
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--console-magenta)")}">
+      ${accentPanelHeaderHtml("var(--console-magenta)", "🏆", "Ranking List")}
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">Manually assign rank — sorted by Rank, blanks last.</p>
+      <div style="overflow-x:auto;margin-top:10px;">
+        <table>
+          <thead><tr><th>RANK</th><th>GAMER NAME</th><th>GAMER ID</th><th>POWER</th><th>NOTES</th></tr></thead>
+          <tbody>
+            ${
+              rows
+                .map(
+                  ({ m, rec }) => `
+              <tr>
+                <td>${canManage ? `<input data-trackinput="ranking|${m.id}|rank" type="number" min="1" value="${rec.rank ?? ""}" style="width:52px;${trackInputStyle}" />` : rec.rank ?? "—"}</td>
+                <td>${escapeHtml(m.name)}</td>
+                <td>${escapeHtml(m.gamerId || "—")}</td>
+                <td>${canManage ? `<input data-trackinput="ranking|${m.id}|power" type="number" min="0" value="${rec.power ?? ""}" style="width:90px;${trackInputStyle}" />` : fmtNum(rec.power || 0)}</td>
+                <td>${canManage ? `<input data-trackinput="ranking|${m.id}|notes" value="${escapeHtml(rec.notes || "")}" style="width:100%;min-width:100px;${trackInputStyle}" />` : escapeHtml(rec.notes || "—")}</td>
+              </tr>`
+                )
+                .join("") || `<tr><td colspan="5">No members yet.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderTimeOfflineSectionHtml(viewingAlliance, members, canManage) {
+  const cat = allianceTrackingCategory(viewingAlliance, "timeOffline");
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--accent-amber)")}">
+      ${accentPanelHeaderHtml("var(--accent-amber)", "⏱️", "Time Offline")}
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">Manual entry — e.g. "Online", "2h", "1d 4h", "7d".</p>
+      <div style="overflow-x:auto;margin-top:10px;">
+        <table>
+          <thead><tr><th>GAMER NAME</th><th>LAST ONLINE</th><th>TIME OFFLINE</th></tr></thead>
+          <tbody>
+            ${
+              members
+                .map((m) => {
+                  const rec = cat[m.id] || {};
+                  return `
+              <tr>
+                <td>${escapeHtml(m.name)}</td>
+                <td>${canManage ? `<input data-trackinput="timeOffline|${m.id}|lastOnline" type="date" value="${rec.lastOnline || ""}" style="${trackInputStyle}" />` : escapeHtml(rec.lastOnline || "—")}</td>
+                <td>${canManage ? `<input data-trackinput="timeOffline|${m.id}|timeOfflineText" value="${escapeHtml(rec.timeOfflineText || "")}" placeholder="e.g. 2h" style="width:100px;${trackInputStyle}" />` : escapeHtml(rec.timeOfflineText || "—")}</td>
+              </tr>`;
+                })
+                .join("") || `<tr><td colspan="3">No members yet.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderContributionsSectionHtml(viewingAlliance, members, canManage) {
+  const cat = allianceTrackingCategory(viewingAlliance, "contributions");
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--accent-green)")}">
+      ${accentPanelHeaderHtml("var(--accent-green)", "📊", "Contributions")}
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">Manual numeric entry per period.</p>
+      <div style="overflow-x:auto;margin-top:10px;">
+        <table>
+          <thead><tr><th>GAMER NAME</th><th>CONTRIBUTION VALUE</th><th>PERIOD / DATE</th><th>NOTES</th></tr></thead>
+          <tbody>
+            ${
+              members
+                .map((m) => {
+                  const rec = cat[m.id] || {};
+                  return `
+              <tr>
+                <td>${escapeHtml(m.name)}</td>
+                <td>${canManage ? `<input data-trackinput="contributions|${m.id}|value" type="number" min="0" value="${rec.value ?? ""}" style="width:110px;${trackInputStyle}" />` : fmtNum(rec.value || 0)}</td>
+                <td>${canManage ? `<input data-trackinput="contributions|${m.id}|period" value="${escapeHtml(rec.period || "")}" placeholder="e.g. Sep 2026" style="width:110px;${trackInputStyle}" />` : escapeHtml(rec.period || "—")}</td>
+                <td>${canManage ? `<input data-trackinput="contributions|${m.id}|notes" value="${escapeHtml(rec.notes || "")}" style="width:100%;min-width:100px;${trackInputStyle}" />` : escapeHtml(rec.notes || "—")}</td>
+              </tr>`;
+                })
+                .join("") || `<tr><td colspan="4">No members yet.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// Fortress / Foundry / Canyon Clash / Crazy Joe / Alliance Championship all
+// share the exact same shape (a player row + N checkboxes), so one generic
+// renderer covers all five — only Bear Trap (a dropdown, not checkboxes)
+// gets its own function below.
+const CHECKBOX_TRACKERS = [
+  { id: "fortress", label: "Fortress", icon: "🏰", columns: [{ key: "signedUp", label: "Signed Up" }, { key: "participated", label: "Participated" }, { key: "correctAttack", label: "Attack Heroes" }, { key: "correctDefense", label: "Defense Heroes" }] },
+  { id: "foundry", label: "Foundry", icon: "⚒️", columns: [{ key: "voted", label: "Voted" }, { key: "battleRequest", label: "Battle Request" }, { key: "participated", label: "Participated" }] },
+  { id: "canyon", label: "Canyon Clash", icon: "⚔️", columns: [{ key: "voted", label: "Voted" }, { key: "battleRequest", label: "Battle Request" }, { key: "participated", label: "Participated" }] },
+  { id: "crazyjoe", label: "Crazy Joe", icon: "🃏", columns: [{ key: "round1", label: "Round 1" }, { key: "round2", label: "Round 2" }] },
+  { id: "beartrap", label: "Bear Trap", icon: "🐻" }, // dropdown, not checkboxes — see renderBearTrapSectionHtml
+  { id: "champTrack", label: "Alliance Championship", icon: "🏆", columns: [{ key: "deployed", label: "Deployed" }, { key: "correctLane", label: "Correct Lane" }, { key: "correctPercentage", label: "Correct %" }] },
+];
+let allianceParticipationTrackerTab = "fortress";
+
+function renderCheckboxTrackerBodyHtml(viewingAlliance, members, canManage, category, columns) {
+  const cat = allianceTrackingCategory(viewingAlliance, category);
+  return `
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>PLAYER</th>${columns.map((c) => `<th style="text-align:center;">${c.label.toUpperCase()}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${
+            members
+              .map((m) => {
+                const rec = cat[m.id] || {};
+                return `
+          <tr>
+            <td>${escapeHtml(m.name)}</td>
+            ${columns.map((c) => `<td style="text-align:center;"><input type="checkbox" ${rec[c.key] ? "checked" : ""} ${canManage ? `data-trackcb="${category}|${m.id}|${c.key}"` : "disabled"} /></td>`).join("")}
+          </tr>`;
+              })
+              .join("") || `<tr><td colspan="${columns.length + 1}">No members yet.</td></tr>`
+          }
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderBearTrapBodyHtml(viewingAlliance, members, canManage) {
+  const cat = allianceTrackingCategory(viewingAlliance, "beartrap");
+  const optionLabel = { NONE: "Neither", BT1: "Bear Trap 1", BT2: "Bear Trap 2", BOTH: "Both" };
+  return `
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>PLAYER</th><th>BEAR TRAP ASSIGNMENT</th></tr></thead>
+        <tbody>
+          ${
+            members
+              .map((m) => {
+                const rec = cat[m.id] || {};
+                const value = BEAR_TRAP_ASSIGNMENTS.includes(rec.assignment) ? rec.assignment : "NONE";
+                return `
+          <tr>
+            <td>${escapeHtml(m.name)}</td>
+            <td>
+              ${
+                canManage
+                  ? `<select data-trackdd="beartrap|${m.id}|assignment" style="${trackInputStyle}">
+                      ${BEAR_TRAP_ASSIGNMENTS.map((a) => `<option value="${a}" ${a === value ? "selected" : ""}>${optionLabel[a]}</option>`).join("")}
+                    </select>`
+                  : optionLabel[value]
+              }
+            </td>
+          </tr>`;
+              })
+              .join("") || `<tr><td colspan="2">No members yet.</td></tr>`
+          }
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// The wrapping "Participation Tracking" widget — one accented panel with a
+// sub-tab bar switching between the six event trackers above, so this
+// doesn't stack six full tables one after another on the page (purely a
+// layout choice; every tracker's data/permissions are independent of the
+// others). Rendered BELOW the existing Bag Submission Rate / SVS Signup
+// Rate table in renderAllianceDashParticipationHtml — that table and its
+// numbers are completely untouched.
+function renderParticipationTrackersHtml(viewingAlliance, members, canManage) {
+  const active = CHECKBOX_TRACKERS.find((t) => t.id === allianceParticipationTrackerTab) || CHECKBOX_TRACKERS[0];
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--accent-purple)")}">
+      ${accentPanelHeaderHtml("var(--accent-purple)", "🛡️", "Participation Tracking")}
+      <div class="admin-tabs" style="margin:10px 0 12px;">
+        ${CHECKBOX_TRACKERS.map((t) => `<button data-parttrackertab="${t.id}" class="${allianceParticipationTrackerTab === t.id ? "active" : ""}">${t.icon} ${t.label.toUpperCase()}</button>`).join("")}
+      </div>
+      ${
+        active.id === "beartrap"
+          ? renderBearTrapBodyHtml(viewingAlliance, members, canManage)
+          : renderCheckboxTrackerBodyHtml(viewingAlliance, members, canManage, active.id, active.columns)
+      }
+    </div>
+  `;
+}
+
+function renderMobilizationSectionHtml(viewingAlliance, members, canManage) {
+  const cat = allianceTrackingCategory(viewingAlliance, "mobilization");
+  const rows = members.map((m) => ({ m, rec: cat[m.id] || {} })).sort((a, b) => (b.rec.finalPoints || 0) - (a.rec.finalPoints || 0));
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--accent-red)")}">
+      ${accentPanelHeaderHtml("var(--accent-red)", "🚩", "Alliance Mobilization Final Points")}
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">Final Points is manual entry — Rank sorts automatically, highest first.</p>
+      <div style="overflow-x:auto;margin-top:10px;">
+        <table>
+          <thead><tr><th>RANK</th><th>GAMER NAME</th><th>FINAL POINTS</th><th>NOTES</th></tr></thead>
+          <tbody>
+            ${
+              rows
+                .map(
+                  ({ m, rec }, i) => `
+              <tr>
+                <td>#${i + 1}</td>
+                <td>${escapeHtml(m.name)}</td>
+                <td>${canManage ? `<input data-trackinput="mobilization|${m.id}|finalPoints" type="number" min="0" value="${rec.finalPoints ?? ""}" style="width:100px;${trackInputStyle}" />` : fmtNum(rec.finalPoints || 0)}</td>
+                <td>${canManage ? `<input data-trackinput="mobilization|${m.id}|notes" value="${escapeHtml(rec.notes || "")}" style="width:100%;min-width:100px;${trackInputStyle}" />` : escapeHtml(rec.notes || "—")}</td>
+              </tr>`
+                )
+                .join("") || `<tr><td colspan="4">No members yet.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// Generic wiring for every per-member tracking field above (checkboxes,
+// the Bear Trap dropdown, and every number/text input) — all funnel through
+// updateAllianceTrackingField(alliance, category, playerId, patch) in
+// data.js, the same allianceId+playerId+category upsert for all of them,
+// so toggling/re-typing the same field twice never creates a second record.
+function wireAllianceTrackingInputs(el, user, viewingAlliance, canManage) {
+  const parseKey = (raw) => {
+    const [category, playerId, field] = raw.split("|");
+    return { category, playerId, field };
+  };
+  el.querySelectorAll("[data-trackcb]").forEach((cb) =>
+    cb.addEventListener("change", () => {
+      if (!canManage || !viewingAlliance) return;
+      const { category, playerId, field } = parseKey(cb.dataset.trackcb);
+      updateAllianceTrackingField(viewingAlliance, category, playerId, { [field]: cb.checked });
+      router();
+    })
+  );
+  el.querySelectorAll("[data-trackdd]").forEach((sel) =>
+    sel.addEventListener("change", () => {
+      if (!canManage || !viewingAlliance) return;
+      const { category, playerId, field } = parseKey(sel.dataset.trackdd);
+      updateAllianceTrackingField(viewingAlliance, category, playerId, { [field]: sel.value });
+      router();
+    })
+  );
+  el.querySelectorAll("[data-trackinput]").forEach((inp) =>
+    inp.addEventListener("change", () => {
+      if (!canManage || !viewingAlliance) return;
+      const { category, playerId, field } = parseKey(inp.dataset.trackinput);
+      const value = inp.type === "number" ? (inp.value === "" ? null : Number(inp.value)) : inp.value.trim();
+      updateAllianceTrackingField(viewingAlliance, category, playerId, { [field]: value });
+      router();
+    })
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -4651,14 +5581,17 @@ function renderNapAdminPanelHtml(user) {
   const ranked = napRankedAlliances();
 
   return `
-    <div class="panel" style="margin-bottom:14px;">
-      <div class="planner-header" style="margin-bottom:0;"><strong>NAP Dashboard Management</strong></div>
-      <p style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">State-wide — Admin only. The public viewer page is at <a href="#/nap" style="color:var(--accent-gold);">/nap</a>, visible to Admin and to any member of an alliance flagged NAP below.</p>
-    </div>
+    ${dashboardHeroHtml(
+      "var(--console-magenta)",
+      "handshake",
+      "NAP OPERATIONS",
+      "NAP Dashboard",
+      "Manage NAP rules, alliances, and fortress/stronghold coordination.",
+      dashboardStatusBadgeHtml("NAP STATUS")
+    )}
+    <p style="font-size:11.5px;color:var(--text-dim);margin:-6px 0 14px;">State-wide — Admin only. The public viewer page is at <a href="#/nap" style="color:var(--accent-gold);">/nap</a>, visible to Admin and to any member of an alliance flagged NAP below.</p>
 
-    <div class="admin-tabs" style="margin-bottom:14px;">
-      ${NAP_ADMIN_SUBTABS.map((tb) => `<button data-napsubtab="${tb.id}" class="${napAdminSubTab === tb.id ? "active" : ""}">${tb.label.toUpperCase()}</button>`).join("")}
-    </div>
+    ${pillTabsHtml(NAP_ADMIN_SUBTABS, napAdminSubTab, "napsubtab")}
 
     ${
       napAdminSubTab !== "rules"
@@ -4750,6 +5683,8 @@ function renderNapAdminSignupSectionHtml(type, statusView, alliances) {
                 <option value="">Not obtained — taken by…</option>
                 ${alliances.filter((a) => a !== r.selectedAllianceTag).map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join("")}
               </select>
+              <button data-napedit="${r.id}" data-nptype="${storeKey}" class="btn small">Edit</button>
+              <button data-napdel="${r.id}" data-nptype="${storeKey}" class="btn small" style="color:var(--accent-red);">Delete</button>
             </div>`
                 : `
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between;">
@@ -4758,7 +5693,10 @@ function renderNapAdminSignupSectionHtml(type, statusView, alliances) {
                 ${r.notes ? escapeHtml(r.notes) + " · " : ""}
                 completed ${r.completedAt ? fmtUtcDate(r.completedAt) : "—"}
               </div>
-              <button data-napdelhist="${r.id}" data-nptype="${storeKey}" class="btn small" style="color:var(--accent-red);">Delete</button>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button data-napedit="${r.id}" data-nptype="${storeKey}" class="btn small">Edit</button>
+                <button data-napdel="${r.id}" data-nptype="${storeKey}" class="btn small" style="color:var(--accent-red);">Delete</button>
+              </div>
             </div>`
             }
           </div>`
@@ -4791,6 +5729,137 @@ function renderNapAdminSignupSectionHtml(type, statusView, alliances) {
       }
     </div>
   `;
+}
+
+// Full edit modal for one existing Fortress/Stronghold signup — used for
+// BOTH a current (PENDING) signup and a completed history record, since
+// they're the same record shape and the same underlying array entry;
+// changing Status here is what moves a record between "Current" and
+// "History" (see the status-driven filter in renderNapAdminSignupSectionHtml
+// above) — never a separate move/copy step, so it's always the SAME record.
+function openNapSignupModal(storeKey, existing, rerender) {
+  document.getElementById("napSignupModalOverlay")?.remove();
+  const label = storeKey === "napFortress" ? "Fortress" : "Stronghold";
+  const alliances = Store.alliances;
+
+  const overlay = document.createElement("div");
+  overlay.id = "napSignupModalOverlay";
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <button class="close">&times;</button>
+      <h3>Edit ${label} Sign Up</h3>
+      <div class="field">
+        <label>${label.toUpperCase()}</label>
+        <input id="napmLocation" value="${escapeHtml(existing.locationName)}" placeholder="e.g. ${label} 2" />
+      </div>
+      <div class="field">
+        <label>SELECTED ALLIANCE</label>
+        <select id="napmAlliance">
+          <option value="">Select alliance…</option>
+          ${alliances.map((a) => `<option value="${escapeHtml(a)}" ${a === existing.selectedAllianceTag ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label>SIGNUP DATE</label>
+        <input id="napmDate" type="date" value="${existing.signupDate || ""}" />
+      </div>
+      <div class="field">
+        <label>STATUS</label>
+        <select id="napmStatus">
+          <option value="PENDING" ${existing.status === "PENDING" ? "selected" : ""}>Pending (current)</option>
+          <option value="OBTAINED" ${existing.status === "OBTAINED" ? "selected" : ""}>Obtained</option>
+          <option value="NOT_OBTAINED" ${existing.status === "NOT_OBTAINED" ? "selected" : ""}>Not Obtained</option>
+        </select>
+        <p style="font-size:10.5px;color:var(--text-faint);margin:4px 0 0;">Changing this moves the record between Current Sign Ups and History automatically — it stays the same record.</p>
+      </div>
+      <div class="field" id="napmTakenByField" style="${existing.status === "NOT_OBTAINED" ? "" : "display:none;"}">
+        <label>TAKEN BY</label>
+        <select id="napmTakenBy">
+          <option value="">Select alliance…</option>
+          ${alliances.map((a) => `<option value="${escapeHtml(a)}" ${a === existing.takenByAllianceTag ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field" id="napmCompletedField" style="${existing.status !== "PENDING" ? "" : "display:none;"}">
+        <label>COMPLETED DATE</label>
+        <input id="napmCompleted" type="date" value="${existing.completedAt ? fmtUtcDate(existing.completedAt) : ""}" />
+      </div>
+      <div class="field">
+        <label>RESULT NOTES (OPTIONAL)</label>
+        <textarea id="napmNotes" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:9px 10px;font-size:13px;min-height:60px;resize:vertical;">${escapeHtml(existing.notes || "")}</textarea>
+      </div>
+      <div id="napmErr" style="color:var(--accent-red);font-size:11.5px;margin:-2px 0 6px;min-height:16px;"></div>
+      <button class="btn primary" id="napmSave" style="width:100%;">SAVE CHANGES</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".close").onclick = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  const statusSel = overlay.querySelector("#napmStatus");
+  const takenByField = overlay.querySelector("#napmTakenByField");
+  const completedField = overlay.querySelector("#napmCompletedField");
+  const takenBySel = overlay.querySelector("#napmTakenBy");
+  const allianceSel = overlay.querySelector("#napmAlliance");
+
+  const syncFieldVisibility = () => {
+    takenByField.style.display = statusSel.value === "NOT_OBTAINED" ? "" : "none";
+    completedField.style.display = statusSel.value !== "PENDING" ? "" : "none";
+  };
+  statusSel.addEventListener("change", syncFieldVisibility);
+
+  // Taken By can't be the same alliance that signed up for it — keep that
+  // option filtered out live as Selected Alliance changes, same rule the
+  // inline "Not obtained — taken by…" dropdown already enforces.
+  const syncTakenByOptions = () => {
+    const current = takenBySel.value;
+    takenBySel.innerHTML =
+      `<option value="">Select alliance…</option>` +
+      alliances
+        .filter((a) => a !== allianceSel.value)
+        .map((a) => `<option value="${escapeHtml(a)}" ${a === current ? "selected" : ""}>${escapeHtml(a)}</option>`)
+        .join("");
+  };
+  allianceSel.addEventListener("change", syncTakenByOptions);
+
+  overlay.querySelector("#napmSave").addEventListener("click", () => {
+    const errEl = overlay.querySelector("#napmErr");
+    const locationName = overlay.querySelector("#napmLocation").value.trim();
+    const selectedAllianceTag = allianceSel.value;
+    const signupDate = overlay.querySelector("#napmDate").value;
+    const status = statusSel.value;
+    const takenByAllianceTag = takenBySel.value;
+    const completedInput = overlay.querySelector("#napmCompleted").value;
+    const notes = overlay.querySelector("#napmNotes").value.trim();
+
+    if (!locationName) { errEl.textContent = `${label} name is required.`; return; }
+    if (!selectedAllianceTag) { errEl.textContent = "Select the alliance that signed up."; return; }
+    if (status === "NOT_OBTAINED" && !takenByAllianceTag) { errEl.textContent = "Select which alliance took it before saving."; return; }
+
+    // Not Obtained -> Obtained clears Taken By (no reason to preserve it —
+    // the alliance that signed up got it after all); Obtained -> Not
+    // Obtained is blocked above until Taken By is set. Pending clears both
+    // Taken By and Completed Date, since it's no longer a completed record.
+    let completedAt = null;
+    if (status !== "PENDING") {
+      completedAt = completedInput ? new Date(completedInput + "T00:00:00Z").getTime() : existing.completedAt || Date.now();
+    }
+
+    const record = {
+      ...existing,
+      locationName,
+      selectedAllianceTag,
+      signupDate,
+      status,
+      obtained: status === "OBTAINED",
+      takenByAllianceTag: status === "NOT_OBTAINED" ? takenByAllianceTag : null,
+      notes,
+      completedAt,
+    };
+    Store[storeKey] = Store[storeKey].map((x) => (x.id === existing.id ? record : x));
+    overlay.remove();
+    rerender();
+  });
 }
 
 function wireNapAdminPanel(el, user) {
@@ -4877,18 +5946,36 @@ function wireNapAdminPanel(el, user) {
     })
   );
 
-  // Permanent history deletion — ADMIN only. This whole panel is only ever
-  // wired for true admin (see `if (!officerScoped) wireNapAdminPanel(...)`
-  // above), but the role check is repeated here too so a delete action
-  // called directly (not through this button) is still denied, matching
-  // the defense-in-depth pattern used elsewhere in Admin/Alliance Dashboard.
-  el.querySelectorAll("[data-napdelhist]").forEach((btn) =>
+  // Edit — opens the full signup modal (openNapSignupModal above), covering
+  // both current (PENDING) signups and completed history records alike.
+  // ADMIN only, same gating as everything else in this panel.
+  el.querySelectorAll("[data-napedit]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (user.role !== "admin") return;
+      const storeKey = btn.dataset.nptype;
+      const record = Store[storeKey].map(normalizeNapSignup).find((r) => r.id === btn.dataset.napedit);
+      if (!record) return;
+      openNapSignupModal(storeKey, record, () => renderAdmin(el));
+    })
+  );
+
+  // Permanent deletion — ADMIN only, works for a current signup or a
+  // completed history record alike (same underlying array, just filtered
+  // out by id). This whole panel is only ever wired for true admin (see
+  // `if (!officerScoped) wireNapAdminPanel(...)` above), but the role check
+  // is repeated here too so a delete action called directly (not through
+  // this button) is still denied, matching the defense-in-depth pattern
+  // used elsewhere in Admin/Alliance Dashboard.
+  el.querySelectorAll("[data-napdel]").forEach((btn) =>
     btn.addEventListener("click", () => {
       if (user.role !== "admin") return;
       const storeKey = btn.dataset.nptype;
       const label = storeKey === "napFortress" ? "Fortress" : "Stronghold";
-      if (!confirm(`Delete this ${label} history record?`)) return;
-      Store[storeKey] = Store[storeKey].filter((r) => r.id !== btn.dataset.napdelhist);
+      const record = Store[storeKey].map(normalizeNapSignup).find((r) => r.id === btn.dataset.napdel);
+      if (!record) return;
+      const confirmMsg = record.status === "PENDING" ? `Delete this ${label} sign up?` : `Delete this ${label} history record?`;
+      if (!confirm(confirmMsg)) return;
+      Store[storeKey] = Store[storeKey].filter((r) => r.id !== btn.dataset.napdel);
       renderAdmin(el);
     })
   );
