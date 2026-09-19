@@ -5596,6 +5596,19 @@ function wireR4JobsSection(el, user, viewingAlliance, members, canManage) {
 // ADMIN/LEADER-R4/MEMBER permission model and the Type/Level/Coordinate
 // validation below are enforced client-side only, the same as every other
 // permission check in this app.
+//
+// ADMIN cross-alliance management ("FACILITY ADMIN PERMISSIONS" round): a
+// true ADMIN (user.role === "admin") is never locked to their own alliance
+// here — allianceDashboardViewingAlliance(user, officerScoped) only forces
+// officerScoped (LEADER/R4, via allianceScoped(user)) to user.alliance;
+// ADMIN keeps the free alliance selector, so `viewingAlliance` can be ANY
+// alliance for them, and every Add/Edit/Delete/Set-* action below saves
+// against whatever allianceId is currently selected — never the admin's own.
+// canManage itself is isAdmin(user), which is true for admin/leader/officer
+// alike (this app's existing "can manage" role check); it's viewingAlliance,
+// not canManage, that scopes LEADER/R4 to their own alliance and frees ADMIN
+// to act on any of them. Same "no real backend" caveat applies: this is a
+// client-side allianceId scope, not a server-enforced one.
 // ---------------------------------------------------------------------------
 const FACILITY_TYPE_ACCENT = {
   CONSTRUCTION: "var(--accent-amber)",
@@ -5849,11 +5862,18 @@ function renderFacilitiesHtml(viewingAlliance, allianceMembers, canManage) {
 // free-typed field — and the Coordinate <select> is repopulated from
 // facilityCoordinates(type, level) every time Type or Level changes, so an
 // invalid Type/Level/Coordinate combination can never be submitted.
-function openFacilityModal(viewingAlliance, members, existing, rerender) {
+function openFacilityModal(viewingAlliance, members, existing, rerender, user) {
   document.getElementById("facilityModalOverlay")?.remove();
   const overlay = document.createElement("div");
   overlay.id = "facilityModalOverlay";
   overlay.className = "modal-overlay";
+  // "UPDATE FACILITY ADMIN PERMISSIONS" round — a true ADMIN (not LEADER/R4,
+  // who are always locked to their own alliance via allianceDashboardViewingAlliance)
+  // gets a read-only "Target Alliance" line confirming which alliance this
+  // record will be saved under. Reuses the Alliance Dashboard's EXISTING
+  // alliance selector (viewingAlliance) rather than building a second one,
+  // per spec — this modal has no alliance picker of its own.
+  const isTrueAdmin = !!user && user.role === "admin";
 
   const initialType = existing?.type || FACILITY_ORDER[0];
   const initialLevel = existing?.level || facilityTypeLevels(initialType)[0];
@@ -5878,6 +5898,17 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
     facilityTypeLevels(type)
       .map((lvl) => `<option value="${lvl}" ${lvl === selectedLevel ? "selected" : ""}>Level ${lvl}</option>`)
       .join("");
+  // Each coordinate option is annotated with its live STATE FACILITY
+  // OWNERSHIP — who (if anyone) currently holds THAT exact Type+Level+
+  // Coordinate across every alliance in the state, not just this one (see
+  // stateFacilityOwnershipMap/stateFacilityOwnerLabel in data.js). Owned
+  // coordinates are never filtered out of this list — leadership still
+  // needs to see/select them for shared facilities, rotating facilities,
+  // planning targets, or correcting another alliance's bad record — they're
+  // just clearly labeled with who holds them. The ownership text is purely
+  // DISPLAY DATA computed fresh from the existing per-alliance records each
+  // time this renders; nothing about it is ever stored on the coordinate
+  // itself (the record's own coordinateX/coordinateY stay a plain "x:y").
   const coordOptionsHtml = (type, level, selectedCoord) => {
     const coords = facilityCoordinates(type, level);
     // If editing a record whose exact coordinate isn't in the list for
@@ -5885,13 +5916,38 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
     // switching Type/Level in the form, before the user re-picks one), still
     // show it so the field never silently shows a wrong selection.
     const list = selectedCoord && !coords.includes(selectedCoord) ? [selectedCoord, ...coords] : coords;
-    return list.map((c) => `<option value="${c}" ${c === selectedCoord ? "selected" : ""}>${c}</option>`).join("");
+    const ownerMap = stateFacilityOwnershipMap(type, level);
+    return list
+      .map((c) => {
+        const [cx, cy] = c.split(":").map(Number);
+        const info = stateFacilityOwnerInfo(type, level, cx, cy, ownerMap);
+        const label = stateFacilityOwnerLabel(info);
+        // Status-based text tint — a plain <option> can't render a real
+        // multi-badge like the table does, so this is a single color per
+        // option standing in for the badge legend (green=owned, gray=
+        // unclaimed, orange=contested/unknown, purple=shared, cyan=
+        // rotating-only); sharing wins over rotating when a record is both,
+        // since the label text already spells out "Shared/Rotating" either way.
+        let color = "var(--text-faint)";
+        if (info.status === "OWNED") {
+          color = info.record.sharingEnabled ? "var(--accent-purple)" : info.record.rotating ? "var(--console-icecyan)" : "var(--accent-green)";
+        } else if (info.status === "CONTESTED" || info.status === "UNKNOWN") {
+          color = "var(--accent-amber)";
+        }
+        return `<option value="${c}" style="color:${color};" ${c === selectedCoord ? "selected" : ""}>${c} — ${escapeHtml(label)}</option>`;
+      })
+      .join("");
   };
 
   overlay.innerHTML = `
     <div class="modal" style="max-width:540px;">
       <button class="close">&times;</button>
       <h3>${existing ? "Edit Facility" : "Add Facility"}</h3>
+      ${
+        isTrueAdmin
+          ? `<div style="font-size:11px;color:var(--text-dim);margin:-4px 0 10px;">TARGET ALLIANCE: <strong style="color:var(--text);">${escapeHtml(viewingAlliance)}</strong> <span style="color:var(--text-faint);">(use the alliance selector above to change it)</span></div>`
+          : ""
+      }
       <div class="field-row">
         <div class="field">
           <label>TYPE</label>
@@ -5905,6 +5961,15 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
       <div class="field">
         <label>COORDINATE</label>
         <select id="facmCoord">${coordOptionsHtml(initialType, initialLevel, initialCoord)}</select>
+      </div>
+      <div id="facmCoordInfo" style="font-size:11px;color:var(--text-dim);margin:-2px 0 4px;line-height:1.7;"></div>
+      <div id="facmCoordWarning" style="display:none;font-size:11px;color:var(--accent-amber);margin:-2px 0 8px;"></div>
+      <div id="facmTransferConfirm" style="display:none;font-size:11px;margin:-2px 0 10px;padding:9px 10px;background:var(--panel-2);border:1px solid var(--accent-amber);border-radius:4px;">
+        <div id="facmTransferMsg" style="color:var(--text-dim);margin-bottom:8px;"></div>
+        <div style="display:flex;gap:8px;">
+          <button type="button" class="btn small" id="facmTransferCancel">CANCEL</button>
+          <button type="button" class="btn small primary" id="facmTransferGo">TRANSFER TO ${escapeHtml(viewingAlliance)}</button>
+        </div>
       </div>
       <div class="field" id="facmBuffField">
         <label>BUFF (AUTO)</label>
@@ -5990,7 +6055,25 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
   const statusEl = overlay.querySelector("#facmStatus");
   const buffTextEl = overlay.querySelector("#facmBuffText");
   const capNoticeEl = overlay.querySelector("#facmCapNotice");
+  const coordInfoEl = overlay.querySelector("#facmCoordInfo");
+  const coordWarningEl = overlay.querySelector("#facmCoordWarning");
+  const transferConfirmEl = overlay.querySelector("#facmTransferConfirm");
+  const transferMsgEl = overlay.querySelector("#facmTransferMsg");
   const saveBtn = overlay.querySelector("#facmSave");
+  // "WARNING FOR EXISTING OWNER" / Cancel-or-Transfer (spec, this round) —
+  // selecting/changing Type, Level or Coordinate always re-hides this prompt
+  // (it's a stale answer to a question about a combination that just
+  // changed); it only reappears when Save is clicked again against whatever
+  // is currently selected. `transferConfirmed` gates ONE save attempt only —
+  // set right before the re-triggered Save click below, never left sticky
+  // across further edits.
+  let transferConfirmed = false;
+  let pendingTransfer = null;
+  const hideTransferConfirm = () => {
+    transferConfirmEl.style.display = "none";
+    pendingTransfer = null;
+  };
+  [typeEl, levelEl, coordEl].forEach((elm) => elm.addEventListener("change", hideTransferConfirm));
 
   const refreshBuffText = () => {
     const buff = facilityBuffInfo(typeEl.value, Number(levelEl.value));
@@ -6032,12 +6115,55 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
     const coord = coords.includes(keepCoord) ? keepCoord : coords[0];
     coordEl.innerHTML = coordOptionsHtml(typeEl.value, Number(levelEl.value), coord);
   };
+  // Selected-coordinate ownership summary + non-blocking cross-alliance
+  // warning (spec "SELECTED VALUE" / "ADD FACILITY VALIDATION" sections) —
+  // always re-derived from stateFacilityOwnerInfo, never stored. Selecting a
+  // coordinate another alliance already has OWNED is explicitly allowed
+  // (shared/rotating/being-transferred/being-corrected facilities all need
+  // this) — this only ever informs, it never blocks Save.
+  const refreshCoordInfo = () => {
+    const type = typeEl.value;
+    const level = Number(levelEl.value);
+    const coord = coordEl.value;
+    if (!coord) { coordInfoEl.innerHTML = ""; coordWarningEl.style.display = "none"; return; }
+    const [cx, cy] = coord.split(":").map(Number);
+    const info = stateFacilityOwnerInfo(type, level, cx, cy);
+    // FACILITY_STATUS_LABELS (data.js) only covers a saved record's own
+    // TARGET/CONTESTED/OWNED/LOST status; UNCLAIMED/UNKNOWN are synthetic,
+    // state-wide-lookup-only outcomes with no stored record behind them, so
+    // they get their own display labels here rather than in data.js.
+    const STATE_OWNER_STATUS_LABELS = { UNCLAIMED: "Unclaimed", CONTESTED: "Contested", UNKNOWN: "Owner Unknown" };
+    const ownerText = info.status === "OWNED" ? escapeHtml(info.alliance) : STATE_OWNER_STATUS_LABELS[info.status];
+    const lines = [
+      `<div><b style="color:var(--text);">Current Owner:</b> ${ownerText}</div>`,
+      `<div><b style="color:var(--text);">Status:</b> ${info.status === "OWNED" ? FACILITY_STATUS_LABELS[info.record.status] || info.record.status : STATE_OWNER_STATUS_LABELS[info.status]}</div>`,
+    ];
+    if (info.status === "OWNED") {
+      const r = info.record;
+      lines.push(`<div><b style="color:var(--text);">Sharing:</b> ${r.sharingEnabled ? escapeHtml(r.sharedWithAlliance || "—") : "Not Shared"}</div>`);
+      lines.push(
+        `<div><b style="color:var(--text);">Rotation:</b> ${
+          r.rotating ? `Yes — Next Owner: ${escapeHtml(r.nextRotationOwnerAlliance || r.rotationAlliance || "—")}` : "No"
+        }</div>`
+      );
+    }
+    coordInfoEl.innerHTML = lines.join("");
+    if (info.status === "OWNED" && info.alliance !== viewingAlliance) {
+      coordWarningEl.textContent = `This facility is currently recorded as owned by ${info.alliance}.`;
+      coordWarningEl.style.display = "";
+    } else {
+      coordWarningEl.textContent = "";
+      coordWarningEl.style.display = "none";
+    }
+  };
   refreshBuffText();
   refreshLevels(initialLevel);
+  refreshCoordInfo();
 
-  typeEl.addEventListener("change", () => { refreshLevels(); refreshCoords(); refreshBuffText(); });
-  levelEl.addEventListener("change", () => { refreshCoords(); refreshBuffText(); refreshDuplicateNotice(); });
+  typeEl.addEventListener("change", () => { refreshLevels(); refreshCoords(); refreshBuffText(); refreshCoordInfo(); });
+  levelEl.addEventListener("change", () => { refreshCoords(); refreshBuffText(); refreshDuplicateNotice(); refreshCoordInfo(); });
   statusEl.addEventListener("change", () => { refreshDuplicateNotice(); });
+  coordEl.addEventListener("change", () => { refreshCoordInfo(); });
 
   // Sharing / Rotation (spec sections 8-17) — both start hidden and only
   // reveal their dependent fields once enabled, same show/hide pattern used
@@ -6146,6 +6272,26 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
       currentRotationOwnerAlliance = samePartner ? existing.currentRotationOwnerAlliance || viewingAlliance : viewingAlliance;
       nextRotationOwnerAlliance = samePartner ? existing.nextRotationOwnerAlliance || rotationAlliance : rotationAlliance;
     }
+    // "WARNING FOR EXISTING OWNER" — all other validation above has already
+    // passed, so this is genuinely about to save. Only relevant when THIS
+    // record is itself being recorded as OWNED (spec, "STATE OWNERSHIP
+    // SYNC": "...if the Facility is being recorded as OWNED") — saving it as
+    // a TARGET/CONTESTED/LOST doesn't change who currently holds the
+    // coordinate, so there's nothing to transfer and no prompt to show. If
+    // this exact Type+Level+Coordinate is currently OWNED by a DIFFERENT
+    // alliance, don't save yet: surface the Cancel/Transfer choice and stop,
+    // exactly once per click (transferConfirmed only gets set true by the
+    // Transfer button's own re-click below, and is reset on any
+    // Type/Level/Coordinate change).
+    if (!transferConfirmed && status === "OWNED") {
+      const conflictInfo = stateFacilityOwnerInfo(type, level, coordinateX, coordinateY);
+      if (conflictInfo.status === "OWNED" && conflictInfo.alliance !== viewingAlliance) {
+        pendingTransfer = { type, level, coordinateX, coordinateY, previousOwner: conflictInfo.alliance };
+        transferMsgEl.textContent = `This facility is currently recorded as owned by ${conflictInfo.alliance}. Cancel to leave it as-is, or transfer it to ${viewingAlliance} — this marks ${conflictInfo.alliance}'s record LOST and logs the change.`;
+        transferConfirmEl.style.display = "";
+        return;
+      }
+    }
     const assignedTo = overlay.querySelector("#facmAssigned").value || null;
     const assignedMember = members.find((m) => m.id === assignedTo);
     const record = {
@@ -6182,8 +6328,29 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
       updatedAt: Date.now(),
     };
     upsertAllianceFacility(viewingAlliance, record);
+    // Transfer's other half — flip the previous owner's record to LOST and
+    // log the audit entry — only runs once Confirmed via the Transfer button
+    // below (pendingTransfer is null on every ordinary save).
+    if (transferConfirmed && pendingTransfer) {
+      applyFacilityOwnershipTransfer(
+        pendingTransfer.type,
+        pendingTransfer.level,
+        pendingTransfer.coordinateX,
+        pendingTransfer.coordinateY,
+        pendingTransfer.previousOwner,
+        viewingAlliance,
+        user?.name
+      );
+    }
     overlay.remove();
     rerender();
+  });
+
+  overlay.querySelector("#facmTransferCancel").addEventListener("click", hideTransferConfirm);
+  overlay.querySelector("#facmTransferGo").addEventListener("click", () => {
+    transferConfirmed = true;
+    transferConfirmEl.style.display = "none";
+    saveBtn.click();
   });
 }
 
@@ -6197,14 +6364,14 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
 function wireFacilitiesSection(el, user, viewingAlliance, allianceMembers, canManage) {
   el.querySelector("#facilityAdd")?.addEventListener("click", () => {
     if (!canManage || !viewingAlliance) return;
-    openFacilityModal(viewingAlliance, allianceMembers, null, () => router());
+    openFacilityModal(viewingAlliance, allianceMembers, null, () => router(), user);
   });
   el.querySelectorAll("[data-facedit]").forEach((btn) =>
     btn.addEventListener("click", () => {
       if (!canManage || !viewingAlliance) return;
       const rec = allianceFacilityRecords(viewingAlliance).find((r) => r.id === btn.dataset.facedit);
       if (!rec) return;
-      openFacilityModal(viewingAlliance, allianceMembers, rec, () => router());
+      openFacilityModal(viewingAlliance, allianceMembers, rec, () => router(), user);
     })
   );
   el.querySelectorAll("[data-facdel]").forEach((btn) =>

@@ -993,6 +993,71 @@ function facilityCoordinateInUse(alliance, coordinateX, coordinateY, excludeId) 
     (r) => r.id !== excludeId && r.status !== "LOST" && r.coordinateX === coordinateX && r.coordinateY === coordinateY
   );
 }
+
+// STATE FACILITY OWNERSHIP ("COORDINATE DROPDOWN" round) — a physical map
+// coordinate is one spot shared by every alliance in the state, but records
+// are still stored per-alliance (Store.allianceFacilities[alliance][]),
+// exactly as documented in the big comment above SEED_ALLIANCE_FACILITIES.
+// There is deliberately no separate stored "state ownership" table — that
+// would just be the same data duplicated a second time and able to drift
+// out of sync. Instead this is computed live, on demand, by scanning every
+// alliance's records for the given Type+Level+Coordinate: whichever
+// alliance's record is OWNED there right now IS the current owner, so this
+// always reflects the latest edit from ANY alliance (including an Admin
+// correcting another alliance's record) with nothing to keep in sync.
+//
+// `stateFacilityOwnershipMap(type, level)` does the full scan ONCE per
+// Type+Level (used to build every option in the coordinate dropdown in one
+// pass); `stateFacilityOwnerInfo(...)` resolves a single coordinate, either
+// from an already-built map or by scanning fresh.
+//
+// Result shapes:
+//   { status: "UNCLAIMED" }                                — nobody has an OWNED/CONTESTED record here
+//   { status: "CONTESTED" }                                 — no OWNED record, but at least one alliance has it as CONTESTED
+//   { status: "OWNED", alliance, record }                   — exactly one alliance has an OWNED record here (the normal case)
+//   { status: "UNKNOWN" }                                    — more than one alliance has an OWNED record at the same physical
+//                                                              coordinate at once, which shouldn't happen but isn't blocked by
+//                                                              this codebase (each alliance's own coordinate-in-use check only
+//                                                              looks at ITS OWN records — see facilityCoordinateInUse above) —
+//                                                              surfaced as "Owner Unknown" rather than silently picking one.
+function stateFacilityOwnershipMap(type, level) {
+  const map = {};
+  (Store.alliances || []).forEach((alliance) => {
+    (Store.allianceFacilities[alliance] || []).forEach((r) => {
+      if (r.type !== type || r.level !== level) return;
+      const coord = `${r.coordinateX}:${r.coordinateY}`;
+      if (!map[coord]) map[coord] = { owned: [], contested: [] };
+      if (r.status === "OWNED") map[coord].owned.push({ alliance, record: r });
+      else if (r.status === "CONTESTED") map[coord].contested.push({ alliance, record: r });
+    });
+  });
+  return map;
+}
+function stateFacilityOwnerInfo(type, level, coordinateX, coordinateY, map) {
+  const coord = `${coordinateX}:${coordinateY}`;
+  const bucket = (map || stateFacilityOwnershipMap(type, level))[coord];
+  if (!bucket || (!bucket.owned.length && !bucket.contested.length)) return { status: "UNCLAIMED" };
+  if (bucket.owned.length === 1) return { status: "OWNED", alliance: bucket.owned[0].alliance, record: bucket.owned[0].record };
+  if (bucket.owned.length > 1) return { status: "UNKNOWN" };
+  return { status: "CONTESTED" };
+}
+// Short display label for a resolved stateFacilityOwnerInfo() result —
+// "Unclaimed" / "Contested" / "Owner Unknown", or for OWNED, the owning
+// alliance plus a Sharing/Rotation suffix built from that record's OWN
+// sharing/rotation fields (never a second, separate ownership dataset).
+function stateFacilityOwnerLabel(info) {
+  if (info.status === "UNCLAIMED") return "Unclaimed";
+  if (info.status === "CONTESTED") return "Contested";
+  if (info.status === "UNKNOWN") return "Owner Unknown";
+  const r = info.record;
+  if (r.sharingEnabled && r.rotating && r.sharedWithAlliance && r.sharedWithAlliance === r.rotationAlliance) {
+    return `${info.alliance} — Shared/Rotating with ${r.sharedWithAlliance}`;
+  }
+  const bits = [];
+  if (r.sharingEnabled && r.sharedWithAlliance) bits.push(`Shared with ${r.sharedWithAlliance}`);
+  if (r.rotating && r.rotationAlliance) bits.push(`Rotating with ${r.rotationAlliance}`);
+  return bits.length ? `${info.alliance} — ${bits.join(" / ")}` : info.alliance;
+}
 function upsertAllianceFacility(alliance, record) {
   if (!alliance) return;
   const all = Store.allianceFacilities;
@@ -1006,6 +1071,49 @@ function deleteAllianceFacility(alliance, id) {
   const all = Store.allianceFacilities;
   all[alliance] = (all[alliance] || []).filter((r) => r.id !== id);
   Store.allianceFacilities = all;
+}
+// STATE FACILITY OWNERSHIP TRANSFER ("FACILITY ADMIN PERMISSIONS" round) —
+// invoked from the Add/Edit Facility modal's Cancel/Transfer prompt when
+// leadership saves a record at a coordinate another alliance currently has
+// OWNED (see the non-blocking warning in openFacilityModal). This does NOT
+// create any new "ownership" record of its own — current ownership is still
+// always whichever alliance's own record is OWNED at that coordinate (see
+// stateFacilityOwnershipMap above); duplicating that into a second stored
+// value is exactly what the spec says not to do. All this does is:
+//   1. flip the PREVIOUS owner's matching record to LOST in their OWN
+//      allianceFacilities array (never deleted — it stays there as their
+//      history, same as any other facility they lose), and
+//   2. append one append-only audit entry to Store.facilityOwnershipTransfers
+//      (Previous Owner / New Owner / Changed By / UTC timestamp) — a
+//      separate log, never itself read back as "who owns this now".
+// The NEW owner's own OWNED record is whatever the modal is already saving
+// via upsertAllianceFacility right alongside this call — this function only
+// handles the "someone else used to have it" half of a transfer.
+function applyFacilityOwnershipTransfer(type, level, coordinateX, coordinateY, previousOwner, newOwner, changedBy) {
+  if (!previousOwner || previousOwner === newOwner) return;
+  const all = Store.allianceFacilities;
+  const list = all[previousOwner] || [];
+  const idx = list.findIndex(
+    (r) => r.type === type && r.level === level && r.coordinateX === coordinateX && r.coordinateY === coordinateY && r.status === "OWNED"
+  );
+  if (idx !== -1) {
+    all[previousOwner] = list.map((r, i) => (i === idx ? { ...r, status: "LOST", updatedAt: Date.now() } : r));
+    Store.allianceFacilities = all;
+  }
+  Store.facilityOwnershipTransfers = [
+    ...Store.facilityOwnershipTransfers,
+    {
+      id: "fxfer" + Date.now(),
+      type,
+      level,
+      coordinateX,
+      coordinateY,
+      previousOwner,
+      newOwner,
+      changedBy: changedBy || "Unknown",
+      changedAt: Date.now(), // UTC epoch ms — same convention as every other timestamp in this app (fmtUtcDateTime renders it)
+    },
+  ];
 }
 // Active Facility Buff Summary (spec sections 15/42-43) — auto-calculated,
 // never editable directly. STACKING RULE: same type + DIFFERENT level stacks
@@ -1546,6 +1654,12 @@ const Store = {
   // Facilities — see FACILITY_DEFINITIONS/SEED_ALLIANCE_FACILITIES above.
   get allianceFacilities() { return this._synced("wos_alliance_facilities", SEED_ALLIANCE_FACILITIES).get(); },
   set allianceFacilities(v) { this._synced("wos_alliance_facilities", SEED_ALLIANCE_FACILITIES).set(v); },
+  // Append-only audit log for facility ownership TRANSFERS (see
+  // applyFacilityOwnershipTransfer above) — never read as a source of truth
+  // for who owns a coordinate now (that's always live-derived from
+  // allianceFacilities, see stateFacilityOwnershipMap), purely a history trail.
+  get facilityOwnershipTransfers() { return this._synced("wos_facility_ownership_transfers", []).get(); },
+  set facilityOwnershipTransfers(v) { this._synced("wos_facility_ownership_transfers", []).set(v); },
 
   // NAP Dashboard — see the "NAP Dashboard" block above and
   // renderNapDashboard / renderNapAdminPanelHtml in app.js.
