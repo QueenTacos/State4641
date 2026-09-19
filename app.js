@@ -191,6 +191,24 @@ function tickClock() {
 }
 setInterval(tickClock, 15000);
 
+// Facility "Protection Remaining" live countdown — updates every second,
+// independent of router()/tickClock. Cheap no-op whenever the Facilities
+// tab isn't the one currently on screen (querySelectorAll just finds
+// nothing). Always recomputed from the stored protectionEndsAt (an
+// absolute UTC timestamp, in the element's own data-endsat attribute) minus
+// the current time — never a decrementing stored value — so it stays
+// correct across a refresh, sign out/in, device switch, or browser restart.
+function tickFacilityCountdowns() {
+  document.querySelectorAll("[data-factimer]").forEach((el) => {
+    const endsAt = Number(el.dataset.endsat) || null;
+    el.textContent = facilityCountdownText(endsAt);
+    const protectedNow = !!endsAt && endsAt > Date.now();
+    el.style.color = protectedNow ? "var(--accent-purple)" : "var(--text-faint)";
+    el.style.fontWeight = protectedNow ? "700" : "400";
+  });
+}
+setInterval(tickFacilityCountdowns, 1000);
+
 function router() {
   const path = currentPath();
   const container = document.getElementById("app");
@@ -5677,7 +5695,7 @@ function renderFacilitiesHtml(viewingAlliance, allianceMembers, canManage) {
         rows.length
           ? `<div style="overflow-x:auto;">
               <table>
-                <thead><tr><th>TYPE</th><th>LV</th><th>COORD</th><th>BUFF</th><th>STATUS</th><th>PRIORITY</th><th>PROTECTION ENDS (UTC)</th><th>ASSIGNED TO</th><th>NOTES</th>${canManage ? "<th></th>" : ""}</tr></thead>
+                <thead><tr><th>TYPE</th><th>LV</th><th>COORD</th><th>BUFF</th><th>STATUS</th><th>PRIORITY</th><th>PROTECTION ENDS (UTC)</th><th>PROTECTION REMAINING</th><th>ASSIGNED TO</th><th>NOTES</th>${canManage ? "<th></th>" : ""}</tr></thead>
                 <tbody>
                   ${rows
                     .map((r) => {
@@ -5692,6 +5710,7 @@ function renderFacilitiesHtml(viewingAlliance, allianceMembers, canManage) {
                         <td>${facilityStatusBadgeHtml(r.status)}${protectedNow ? ` <span style="font-size:9px;color:var(--accent-purple);">🛡</span>` : ""}</td>
                         <td style="text-transform:capitalize;">${(r.priority || "NORMAL").toLowerCase()}</td>
                         <td style="font-size:11px;color:var(--text-dim);font-variant-numeric:tabular-nums;">${r.protectionEndsAt ? fmtUtcDateTime(r.protectionEndsAt) : "—"}</td>
+                        <td style="font-size:11px;font-variant-numeric:tabular-nums;color:${protectedNow ? "var(--accent-purple)" : "var(--text-faint)"};font-weight:${protectedNow ? "700" : "400"};" data-factimer="${r.id}" data-endsat="${r.protectionEndsAt || ""}">${facilityCountdownText(r.protectionEndsAt)}</td>
                         <td>${escapeHtml(r.assignedToName || "—")}</td>
                         <td style="max-width:160px;font-size:11px;color:var(--text-dim);">${escapeHtml(r.notes || "—")}</td>
                         ${
@@ -5726,6 +5745,12 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
   const initialType = existing?.type || FACILITY_ORDER[0];
   const initialLevel = existing?.level || facilityTypeLevels(initialType)[0];
   const initialCoord = existing ? facilityCoordinateLabel(existing) : "";
+  // Protection is stored as ONE absolute UTC timestamp (protectionEndsAt) —
+  // never a countdown itself — so reopening this form on an existing record
+  // re-derives fresh Days/Hours/Minutes/Seconds from however much time is
+  // actually left right now, rather than showing whatever was typed when it
+  // was first captured (which would drift stale every time this modal reopens).
+  const facmProtInit = facilityEndsAtToProtectionInput(existing?.protectionEndsAt);
 
   const levelOptionsHtml = (type, selectedLevel) =>
     facilityTypeLevels(type)
@@ -5781,12 +5806,16 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
           ${members.map((m) => `<option value="${m.id}" ${existing?.assignedTo === m.id ? "selected" : ""}>${escapeHtml(m.name)}</option>`).join("")}
         </select>
       </div>
-      <div class="field-row">
-        <div class="field">
-          <label>PROTECTION ENDS (UTC, OPTIONAL)</label>
-          <input id="facmProtection" type="datetime-local" value="${existing?.protectionEndsAt ? utcMsToDatetimeLocal(existing.protectionEndsAt) : ""}" />
+      <div class="field">
+        <label>PROTECTION REMAINING (OPTIONAL)</label>
+        <div class="field-row" style="margin-bottom:6px;">
+          <div class="field" style="min-width:0;"><label style="font-size:9.5px;">DAYS</label><input id="facmProtDays" type="number" min="0" step="1" style="min-width:0;width:100%;" value="${facmProtInit.days}" /></div>
+          <div class="field" style="min-width:0;"><label style="font-size:9.5px;">HOURS</label><input id="facmProtHours" type="number" min="0" max="23" step="1" style="min-width:0;width:100%;" value="${facmProtInit.hours}" /></div>
+          <div class="field" style="min-width:0;"><label style="font-size:9.5px;">MINUTES</label><input id="facmProtMinutes" type="number" min="0" max="59" step="1" style="min-width:0;width:100%;" value="${facmProtInit.minutes}" /></div>
+          <div class="field" style="min-width:0;"><label style="font-size:9.5px;">SECONDS</label><input id="facmProtSeconds" type="number" min="0" max="59" step="1" style="min-width:0;width:100%;" value="${facmProtInit.seconds}" /></div>
         </div>
-        <div class="field" style="flex:none;align-self:flex-end;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div id="facmProtPreview" style="font-size:11px;color:var(--text-faint);"></div>
           <button type="button" class="btn small" id="facmAutoProtect">Capture now (+72h)</button>
         </div>
       </div>
@@ -5861,9 +5890,28 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
   levelEl.addEventListener("change", () => { refreshCoords(); refreshBuffText(); });
   statusEl.addEventListener("change", () => { refreshLevels(Number(levelEl.value)); refreshCoords(coordEl.value); refreshBuffText(); });
 
+  const protDaysEl = overlay.querySelector("#facmProtDays");
+  const protHoursEl = overlay.querySelector("#facmProtHours");
+  const protMinutesEl = overlay.querySelector("#facmProtMinutes");
+  const protSecondsEl = overlay.querySelector("#facmProtSeconds");
+  const protPreviewEl = overlay.querySelector("#facmProtPreview");
+  const currentProtectionEndsAt = () =>
+    facilityProtectionInputToEndsAt(protDaysEl.value, protHoursEl.value, protMinutesEl.value, protSecondsEl.value);
+  const refreshProtPreview = () => {
+    const endsAt = currentProtectionEndsAt();
+    protPreviewEl.textContent = endsAt
+      ? `Ends ${fmtUtcDateTime(endsAt)} — ${facilityCountdownText(endsAt)} remaining`
+      : "No protection timer set.";
+  };
+  [protDaysEl, protHoursEl, protMinutesEl, protSecondsEl].forEach((inp) => inp.addEventListener("input", refreshProtPreview));
+  refreshProtPreview();
+
   overlay.querySelector("#facmAutoProtect").addEventListener("click", () => {
-    const input = overlay.querySelector("#facmProtection");
-    input.value = utcMsToDatetimeLocal(Date.now() + FACILITY_PROTECTION_MS);
+    protDaysEl.value = FACILITY_PROTECTION_MS / 86400000;
+    protHoursEl.value = 0;
+    protMinutesEl.value = 0;
+    protSecondsEl.value = 0;
+    refreshProtPreview();
   });
 
   overlay.querySelector("#facmSave").addEventListener("click", () => {
@@ -5889,7 +5937,6 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
     }
     const assignedTo = overlay.querySelector("#facmAssigned").value || null;
     const assignedMember = members.find((m) => m.id === assignedTo);
-    const protectionInput = overlay.querySelector("#facmProtection").value;
     const record = {
       id: existing?.id || "fac" + Date.now(),
       type,
@@ -5901,7 +5948,13 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
       assignedTo,
       assignedToName: assignedMember ? assignedMember.name : "",
       capturedAt: status === "OWNED" ? existing?.capturedAt || Date.now() : existing?.capturedAt || null,
-      protectionEndsAt: protectionInput ? datetimeLocalToUtcMs(protectionInput) : null,
+      // Days/Hours/Minutes/Seconds input is converted to ONE absolute UTC
+      // timestamp right here at save time — that's the only thing ever
+      // stored (see facilityProtectionInputToEndsAt in data.js). Any
+      // out-of-range field (e.g. 30 hours) is normalized correctly for
+      // free, since it's summed into total seconds before being added to
+      // "now" rather than stored as separate D/H/M/S fields.
+      protectionEndsAt: currentProtectionEndsAt(),
       notes: overlay.querySelector("#facmNotes").value.trim(),
       createdAt: existing?.createdAt || Date.now(),
       updatedAt: Date.now(),
@@ -5912,23 +5965,10 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
   });
 }
 
-// datetime-local <input> works in the browser's LOCAL time zone, but every
-// other time field in this app is UTC (see fmtUtcDate/fmtUtcDateTime) — these
-// two helpers convert between that local-time input and a UTC epoch-ms
-// value so Protection Ends always stores/displays true UTC, never whatever
-// zone the browser happens to be in.
-function utcMsToDatetimeLocal(ms) {
-  const d = new Date(ms);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-}
-function datetimeLocalToUtcMs(value) {
-  if (!value) return null;
-  const [datePart, timePart] = value.split("T");
-  const [y, m, d] = datePart.split("-").map(Number);
-  const [hh, mm] = (timePart || "00:00").split(":").map(Number);
-  return Date.UTC(y, m - 1, d, hh, mm);
-}
+// Protection Remaining now uses Days/Hours/Minutes/Seconds inputs (see the
+// Add/Edit Facility modal above) rather than a datetime-local field — see
+// facilityProtectionInputToEndsAt/facilityEndsAtToProtectionInput/
+// facilityCountdownText in data.js for the conversion + live-display logic.
 // fmtUtcDateTime() already exists in data.js (24-hour UTC "YYYY-MM-DD HH:MM
 // UTC" formatter, used app-wide) — reused here rather than redefined.
 

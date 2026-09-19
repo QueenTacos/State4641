@@ -906,6 +906,59 @@ function allianceFacilityRecords(alliance) {
 function facilityIsProtected(r) {
   return r.status === "OWNED" && !!r.protectionEndsAt && r.protectionEndsAt > Date.now();
 }
+// Live "Protection Remaining" countdown text — "protectionEndsAt" (an
+// absolute UTC epoch-ms timestamp) is the ONLY thing ever stored; this is
+// always computed fresh from (protectionEndsAt - now), never a stored,
+// constantly-decreasing value, so it stays correct across a page refresh,
+// sign out/in, switching devices, or a browser restart. Renders as
+// "2d 11h 08m 32s", dropping leading all-zero units ("11h 08m 32s",
+// "42m 18s", "38s"), or "PROTECTION EXPIRED" once the timestamp has passed.
+function facilityCountdownText(protectionEndsAt) {
+  if (!protectionEndsAt) return "—";
+  const remainingMs = protectionEndsAt - Date.now();
+  if (remainingMs <= 0) return "PROTECTION EXPIRED";
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (days > 0 || hours > 0) parts.push(`${pad(hours)}h`);
+  if (days > 0 || hours > 0 || minutes > 0) parts.push(`${pad(minutes)}m`);
+  parts.push(`${pad(seconds)}s`);
+  return parts.join(" ");
+}
+// Days/Hours/Minutes/Seconds countdown INPUT -> one absolute UTC timestamp.
+// Any out-of-range input (e.g. 30 hours entered through some alternate
+// input method) is normalized correctly here simply by summing everything
+// into total seconds before adding it to "now" — never stored as separate
+// D/H/M/S fields, so there's nothing to independently validate/carry later.
+// Returns null (no protection) when every field is 0.
+function facilityProtectionInputToEndsAt(days, hours, minutes, seconds) {
+  const d = Math.max(0, Math.floor(Number(days) || 0));
+  const h = Math.max(0, Math.floor(Number(hours) || 0));
+  const m = Math.max(0, Math.floor(Number(minutes) || 0));
+  const s = Math.max(0, Math.floor(Number(seconds) || 0));
+  const totalSeconds = d * 86400 + h * 3600 + m * 60 + s;
+  return totalSeconds > 0 ? Date.now() + totalSeconds * 1000 : null;
+}
+// Reverse — splits the remaining time until a stored protectionEndsAt back
+// into D/H/M/S for repopulating the Add/Edit Facility form when reopening
+// it (e.g. to see or adjust an already-running countdown, per hours
+// normalizing into days above rather than ever showing 30h).
+function facilityEndsAtToProtectionInput(protectionEndsAt) {
+  if (!protectionEndsAt) return { days: 0, hours: 0, minutes: 0, seconds: 0 };
+  const remainingMs = Math.max(0, protectionEndsAt - Date.now());
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  return {
+    days: Math.floor(totalSeconds / 86400),
+    hours: Math.floor((totalSeconds % 86400) / 3600),
+    minutes: Math.floor((totalSeconds % 3600) / 60),
+    seconds: totalSeconds % 60,
+  };
+}
 // Duplicate-coordinate prevention (spec section 26) — within one alliance,
 // the same map coordinate can't be tracked by two different (non-LOST)
 // records at once. `excludeId` lets an edit-in-place check ignore itself.
