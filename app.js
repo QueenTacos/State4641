@@ -5889,7 +5889,7 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
   };
 
   overlay.innerHTML = `
-    <div class="modal">
+    <div class="modal" style="max-width:540px;">
       <button class="close">&times;</button>
       <h3>${existing ? "Edit Facility" : "Add Facility"}</h3>
       <div class="field-row">
