@@ -4096,14 +4096,19 @@ function renderAllianceDashboardTabHtml(user, officerScoped) {
     )}
 
     ${pillTabsHtml(
-      // FACILITIES is leadership-only (ADMIN/LEADER/R4) — a plain MEMBER
-      // never even sees the tab button, and the route-level guard below
-      // (allianceDashSubTab === "facilities" && !isAdmin(user)) blocks
-      // direct access too, in case a MEMBER had it selected before their
-      // role changed. See spec sections 1/37/44 — this is a client-side-only
-      // guard, same limitation as everywhere else permissions are enforced
-      // in this codebase (no server-side authorization layer exists here).
-      isAdmin(user) ? ALLIANCE_DASH_SUBTABS : ALLIANCE_DASH_SUBTABS.filter((tb) => tb.id !== "facilities"),
+      // FACILITIES is now visible to every signed-in role, including
+      // MEMBER (see spec "UPDATE ALLIANCE DASHBOARD → FACILITIES MEMBER
+      // ACCESS"): ADMIN/LEADER/R4 get the editable version (canManage via
+      // isAdmin(user) below), MEMBER gets a read-only view of the exact
+      // same data. Alliance scoping is unaffected — MEMBER only ever
+      // reaches this tab through the officerScoped standalone "/alliance"
+      // route (renderAllianceDashboardStandalone above), which locks
+      // viewingAlliance to the signed-in user's own alliance no matter
+      // their role, so a Member can never view another alliance's
+      // Facilities. This is still a client-side-only guard, same
+      // limitation as everywhere else permissions are enforced in this
+      // codebase (no server-side authorization layer exists here).
+      ALLIANCE_DASH_SUBTABS,
       allianceDashSubTab,
       "adsubtab"
     )}
@@ -4112,7 +4117,7 @@ function renderAllianceDashboardTabHtml(user, officerScoped) {
     ${allianceDashSubTab !== "calendar" ? "" : renderAllianceCalendarHtml(viewingAlliance, isAdmin(user))}
     ${allianceDashSubTab !== "notifications" ? "" : renderAllianceNotificationsPanelHtml(user, viewingAlliance, isAdmin(user))}
     ${allianceDashSubTab !== "event-times" ? "" : renderAllianceDashEventTimesHtml(viewingAlliance, isAdmin(user))}
-    ${allianceDashSubTab !== "facilities" || !isAdmin(user) ? "" : renderFacilitiesHtml(viewingAlliance, members, isAdmin(user))}
+    ${allianceDashSubTab !== "facilities" ? "" : renderFacilitiesHtml(viewingAlliance, members, isAdmin(user))}
     ${allianceDashSubTab !== "participation" ? "" : renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, svsSignups, isAdmin(user))}
     ${allianceDashSubTab !== "performance" ? "" : renderAllianceDashPerformanceHtml(viewingAlliance, members, bagSubs, isAdmin(user))}
     ${allianceDashSubTab !== "discipline" ? "" : renderAllianceDashDisciplineHtml(viewingAlliance, isAdmin(user))}
@@ -5160,7 +5165,15 @@ function wireAllianceDashboardTab(el, user, officerScoped) {
   // Times/Discipline above.
   const allianceDashMembers = Store.members.filter((m) => m.alliance === viewingAlliance);
   wireR4JobsSection(el, user, viewingAlliance, allianceDashMembers, isAdmin(user));
-  if (allianceDashSubTab === "facilities" && isAdmin(user)) wireFacilitiesSection(el, user, viewingAlliance, allianceDashMembers, isAdmin(user));
+  // Wired unconditionally like wireR4JobsSection above — MEMBER now
+  // renders this tab too (read-only), and every handler inside
+  // wireFacilitiesSection re-checks canManage (isAdmin(user)) itself
+  // before doing anything, so this is a safe no-op for a MEMBER: the
+  // Add/Edit/Delete buttons don't even exist in their HTML (renderFacilitiesHtml
+  // only emits them when canManage is true), and the Type/Status/Sort
+  // filters remain wired for everyone since filtering is a display-only
+  // convenience, not a data edit.
+  if (allianceDashSubTab === "facilities") wireFacilitiesSection(el, user, viewingAlliance, allianceDashMembers, isAdmin(user));
   wireAllianceTrackingInputs(el, user, viewingAlliance, isAdmin(user));
   el.querySelectorAll("[data-parttrackertab]").forEach((btn) =>
     btn.addEventListener("click", () => {
