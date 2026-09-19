@@ -849,11 +849,25 @@ function isValidFacilityCombo(type, level, coordinate) {
 
 // Per-alliance owned/targeted facility records — { [allianceTag]: FacilityRecord[] }.
 // Each record: { id, type, level, coordinateX, coordinateY, status, priority,
-// assignedTo, assignedToName, capturedAt, protectionEndsAt, notes, createdAt, updatedAt }.
+// assignedTo, assignedToName, capturedAt, protectionEndsAt, notes, createdAt,
+// updatedAt, sharingEnabled, sharedWithAlliance, rotating, rotationAlliance,
+// currentRotationOwnerAlliance, nextRotationOwnerAlliance, rotationNotes }.
 // `status` is one of FACILITY_STATUSES; "Protected" (section 27's 4th summary
 // count) is NOT a stored status — it's derived at render time as any OWNED
 // record whose protectionEndsAt is still in the future, so it can never
 // drift out of sync with the actual timer.
+//
+// Sharing/Rotation (added for "FACILITIES MEMBER ACCESS" follow-up round —
+// see facilityNeededSummary/facilityBuffContributes/switchFacilityRotation
+// below): sharingEnabled/sharedWithAlliance are purely informational — they
+// never change who the record is stored under or whose buff total it counts
+// toward (spec: "Sharing does not automatically change ownership"). Rotation
+// is different: currentRotationOwnerAlliance is what actually gates buff
+// contribution (see facilityCountsTowardOwner) — the record always stays
+// physically stored under the alliance that originally added it (this
+// codebase has no cross-alliance record), but it only counts toward that
+// alliance's active buff total while currentRotationOwnerAlliance still
+// equals that alliance. "Switch Rotation" swaps current/next in place.
 const SEED_ALLIANCE_FACILITIES = {};
 const FACILITY_STATUSES = ["TARGET", "CONTESTED", "OWNED", "LOST"];
 const FACILITY_STATUS_LABELS = { TARGET: "Target", CONTESTED: "Contested", OWNED: "Owned", LOST: "Lost" };
@@ -861,15 +875,25 @@ const FACILITY_PRIORITIES = ["LOW", "NORMAL", "HIGH"];
 // Protection window after a successful capture — 3 days / 72 hours.
 const FACILITY_PROTECTION_MS = 72 * 60 * 60 * 1000;
 
-// Ownership limit — how many ACTIVE (status === "OWNED") facilities of a
-// given type an alliance may count toward its buff summary at once.
-// Construction/Defense/Tech/Weapon each have 2 valid levels and may be
-// OWNED at BOTH (they must be two DIFFERENT levels — never the same level
-// twice); Expedition/Gathering/Training/Production only ever have ONE valid
-// level to begin with, so their cap is 1. This only restricts what may be
-// marked OWNED — a TARGET/CONTESTED/LOST record of the same type+level is
-// still trackable beyond the cap, it just can't be marked OWNED until an
-// existing OWNED slot for that type frees up (see canAddActiveFacility).
+// How many DISTINCT levels of a given type can ever contribute to the buff
+// total at once — Construction/Defense/Tech/Weapon each have 2 valid levels
+// (may both be OWNED, since they're different levels); Expedition/Gathering/
+// Training/Production only ever have ONE valid level to begin with, so 1.
+//
+// IMPORTANT — this is informational only as of the "FACILITIES NEEDED +
+// SHARING + ROTATION" round: earlier this was also a hard SAVE-TIME cap
+// (canAddActiveFacility below blocked marking a second same-level facility
+// OWNED at all). That block has been REMOVED per that round's explicit
+// requirement ("Do not prevent leadership from recording duplicate
+// same-level facilities... allow them to be marked OWNED"). Leadership may
+// now mark any number of same-Type-same-Level facilities OWNED; exactly one
+// of them "contributes" to the buff total per (Type, Level) — see
+// facilityBuffContributes below — and this map is only still read by
+// computeFacilityBuffSummary's defensive `.slice(0, max)`, which can never
+// actually trim anything since a type never has more than this many valid
+// levels to begin with (facilityTypeLevels IS this same number). Kept
+// mainly so canAddActiveFacility/allianceActiveFacilityLevels remain
+// available if some future rule needs a real cap again.
 const FACILITY_MAX_ACTIVE = {
   CONSTRUCTION: 2,
   DEFENSE: 2,
@@ -891,9 +915,11 @@ function allianceActiveFacilityLevels(alliance, type, excludeId) {
     .filter((r) => r.type === type && r.status === "OWNED" && r.id !== excludeId)
     .map((r) => r.level);
 }
-// Whether a facility of this Type+Level may be marked OWNED right now —
-// false if that exact level is already OWNED elsewhere (same level can never
-// count twice) or the type is already at its max distinct-level cap.
+// No longer called anywhere as a save-time gate (see the comment on
+// FACILITY_MAX_ACTIVE above) — kept only in case a future rule needs a real
+// hard cap again. Originally: whether a facility of this Type+Level could be
+// marked OWNED right now — false if that exact level was already OWNED
+// elsewhere or the type was already at its max distinct-level cap.
 function canAddActiveFacility(alliance, type, level, excludeId) {
   const activeLevels = allianceActiveFacilityLevels(alliance, type, excludeId);
   if (activeLevels.includes(level)) return false;
@@ -991,8 +1017,13 @@ function deleteAllianceFacility(alliance, id) {
 // even data that somehow ended up with more OWNED levels than the type
 // allows (e.g. imported/legacy records) can never count more than the cap
 // toward the buff total.
-function computeFacilityBuffSummary(records) {
-  const owned = (records || []).filter((r) => r.status === "OWNED");
+// `viewingAlliance` is optional for backward compatibility, but should
+// always be passed now — it's what lets a rotating facility that has
+// rotated AWAY from this alliance this cycle correctly stop counting toward
+// this alliance's total (see facilityCountsTowardOwner below). Omitting it
+// falls back to counting every OWNED record regardless of rotation state.
+function computeFacilityBuffSummary(records, viewingAlliance) {
+  const owned = (records || []).filter((r) => r.status === "OWNED" && facilityCountsTowardOwner(r, viewingAlliance));
   const summary = {};
   FACILITY_ORDER.forEach((type) => {
     const levelsOwned = new Set(owned.filter((r) => r.type === type).map((r) => r.level));
@@ -1005,6 +1036,102 @@ function computeFacilityBuffSummary(records) {
     summary[type] = { buffName: def.buffName, totalAmount: levels.reduce((sum, l) => sum + l.buffAmount, 0), levels };
   });
   return summary;
+}
+
+// FACILITIES NEEDED (spec sections 1/2/6/20/21) — for each type, compare the
+// distinct set of currently-OWNED (and currently rotation-active — see
+// facilityCountsTowardOwner) levels against every valid level defined for
+// that type. facilityTypeLevels(type) IS the "compatible levels" list —
+// Construction/Tech/Defense/Weapon each define exactly 2 valid levels, the
+// other four types exactly 1 — so there's no separate table to keep in sync
+// with FACILITY_DEFINITIONS. A type reads COMPLETE once every one of its
+// valid levels is owned at least once; any level not yet owned is listed as
+// still Needed. Duplicate same-level OWNED records never affect this in
+// either direction — only the distinct Set of owned levels matters, exactly
+// like the buff summary above.
+function facilityNeededSummary(alliance) {
+  const owned = allianceFacilityRecords(alliance).filter((r) => r.status === "OWNED" && facilityCountsTowardOwner(r, alliance));
+  return FACILITY_ORDER.map((type) => {
+    const def = FACILITY_DEFINITIONS[type];
+    const validLevels = facilityTypeLevels(type);
+    const ownedLevels = new Set(owned.filter((r) => r.type === type).map((r) => r.level));
+    const missing = validLevels.filter((lvl) => !ownedLevels.has(lvl));
+    return {
+      type,
+      label: def.label,
+      buffName: def.buffName,
+      complete: missing.length === 0,
+      needed: missing.map((lvl) => ({ level: lvl, buffAmount: def.levels[lvl]?.buffAmount || 0 })),
+    };
+  });
+}
+
+// Rotation gating (spec sections 11-17) — a rotating facility record stays
+// physically stored under whichever alliance originally added it (this
+// codebase has no cross-alliance record — Store.allianceFacilities is keyed
+// per-alliance, and there's no shared/global facility list), but only counts
+// toward THAT alliance's active buff total while it is also the CURRENT
+// rotation owner. Once leadership clicks "Switch Rotation" away from this
+// alliance, the record simply stops contributing here — it is never moved,
+// duplicated, or deleted, and it does NOT start contributing to the partner
+// alliance's buff total either (that alliance never sees this record at
+// all, since it lives in a different alliance's array) — see the big
+// comment on SEED_ALLIANCE_FACILITIES above for why this is the chosen
+// trade-off. A non-rotating record (or one with no
+// currentRotationOwnerAlliance set) always counts toward its home alliance,
+// unchanged from every earlier round.
+function facilityCountsTowardOwner(r, viewingAlliance) {
+  if (!r.rotating || !r.currentRotationOwnerAlliance || !viewingAlliance) return true;
+  return r.currentRotationOwnerAlliance === viewingAlliance;
+}
+
+// Physical Ownership vs Buff Contribution (spec sections 3-7/24) — leadership
+// may mark ANY number of same-Type-same-Level facilities OWNED; nothing
+// blocks that save (see the FACILITY_MAX_ACTIVE comment above). Exactly ONE
+// record per (Type, Level) combination then "contributes" to the alliance's
+// active buff total: the first one recorded (stable creation order — the
+// array append order from upsertAllianceFacility), so re-rendering never
+// flips which physical facility gets credit. Every other same-Type-same-
+// Level OWNED record is still fully tracked (never hidden) but reads as a
+// duplicate that adds nothing further — see facilityBuffContributes, used
+// by the table/card display to show "DUPLICATE BONUS — NO ADDITIONAL BUFF".
+function facilityContributingRecordIds(alliance) {
+  const records = Store.allianceFacilities[alliance] || [];
+  const seen = new Set();
+  const contributing = new Set();
+  records.forEach((r) => {
+    if (r.status !== "OWNED" || !facilityCountsTowardOwner(r, alliance)) return;
+    const key = r.type + "|" + r.level;
+    if (seen.has(key)) return;
+    seen.add(key);
+    contributing.add(r.id);
+  });
+  return contributing;
+}
+function facilityBuffContributes(alliance, record) {
+  if (record.status !== "OWNED" || !facilityCountsTowardOwner(record, alliance)) return false;
+  return facilityContributingRecordIds(alliance).has(record.id);
+}
+
+// SWITCH ROTATION (spec section 15) — swaps current/next rotation owner in
+// place; the record is never deleted/recreated, and this is the ONLY thing
+// this action changes (sharing, protection, notes, coordinate, etc. are all
+// untouched). No-op if the record isn't a rotating facility.
+function switchFacilityRotation(alliance, id) {
+  if (!alliance) return;
+  const all = Store.allianceFacilities;
+  const list = all[alliance] || [];
+  const idx = list.findIndex((r) => r.id === id);
+  if (idx === -1 || !list[idx].rotating) return;
+  const rec = list[idx];
+  const swapped = {
+    ...rec,
+    currentRotationOwnerAlliance: rec.nextRotationOwnerAlliance,
+    nextRotationOwnerAlliance: rec.currentRotationOwnerAlliance,
+    updatedAt: Date.now(),
+  };
+  all[alliance] = list.map((r, i) => (i === idx ? swapped : r));
+  Store.allianceFacilities = all;
 }
 
 // ---------------------------------------------------------------------------

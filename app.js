@@ -450,6 +450,10 @@ function renderClaimPane(pane, overlay) {
       if (!/^\d{4}$/.test(pin)) { setupErrEl.textContent = t("auth.errPinFormat"); return; }
       if (pin !== pinConfirm) { setupErrEl.textContent = "PINs don't match."; return; }
 
+      // Re-check against the live Store, not the closed-over `member`
+      // snapshot — this record must still exist and must still be
+      // unclaimed (no pin yet) at the moment of activation (security
+      // requirement #12: "the record is not already activated").
       const members = Store.members;
       const idx = members.findIndex((m) => m.id === matchedMember.id);
       if (idx === -1) { setupErrEl.textContent = "This account no longer exists — ask your leadership to re-add you."; return; }
@@ -457,6 +461,8 @@ function renderClaimPane(pane, overlay) {
       const idTaken = members.some((m) => m.id !== matchedMember.id && m.gamerId && m.gamerId.toLowerCase() === gamerId.toLowerCase());
       if (idTaken) { setupErrEl.textContent = t("auth.errAccountExists"); return; }
 
+      // Same record, same id — just filling in what leadership left blank.
+      // Never creates a second record for this person.
       members[idx] = { ...members[idx], gamerId, pin, preferredLanguage };
       Store.members = members;
       Store.currentUser = members[idx];
@@ -468,6 +474,10 @@ function renderClaimPane(pane, overlay) {
   };
 
   const find = () => {
+    // Capture the alliance dropdown's current selection BEFORE touching its
+    // innerHTML below — rebuilding the <select>'s options resets its value,
+    // so reading it after the rebuild always came back empty (the bug that
+    // made the alliance "change" handler never actually progress to setup).
     const previouslySelectedAlliance = allianceSelect.value;
     errEl.textContent = "";
     setupFieldsEl.innerHTML = "";
@@ -484,6 +494,10 @@ function renderClaimPane(pane, overlay) {
       renderSetupStep(matches[0]);
       return;
     }
+    // Same Gamer Name pending in more than one alliance — ask which one.
+    // Only rebuild the option list when the candidate set actually changed
+    // (a fresh name lookup), so a later re-run from the alliance <select>'s
+    // own "change" event doesn't wipe out the selection it just fired for.
     const candidateKey = matches.map((m) => m.id).sort().join(",");
     if (allianceSelect.dataset.candidateKey !== candidateKey) {
       allianceSelect.dataset.candidateKey = candidateKey;
@@ -3324,6 +3338,13 @@ function renderAdmin(el) {
     else if (!STATE_DASHBOARD_TAB_IDS.includes(adminActiveTab)) adminActiveTab = "members";
   }
   const stateDashboardTabs = ADMIN_TABS.filter((tb) => STATE_DASHBOARD_TAB_IDS.includes(tb.id));
+
+  // Role choices available in the "Add Member" row below, gated the same
+  // way as the existing per-row role-change select just above it: true
+  // ADMIN can hand out any role, LEADER (canManageR4Roles but officerScoped)
+  // can create R4/Member within their own alliance, and R4 itself can only
+  // ever add plain Members — matching "R4 should be able to add normal
+  // Members but should NOT be able to assign R4/Leader roles."
   const addMemberRoleOptions = !officerScoped
     ? ["member", "officer", "leader", "admin"]
     : canManageR4Roles(user)
@@ -3888,12 +3909,22 @@ function renderAdmin(el) {
     const gamerId = el.querySelector("#admNewGamerId").value.trim();
     if (!name) return;
 
+    // Officers only ever see their own alliance here, so a member they add
+    // needs that alliance from the start — otherwise it'd default blank and
+    // immediately vanish from their filtered table. True ADMIN picks any
+    // alliance from the new selector.
     const alliance = officerScoped ? user.alliance || "" : (el.querySelector("#admNewMemberAlliance")?.value || "").trim();
     if (!officerScoped && !alliance) {
       alert("Select an alliance for this member.");
       return;
     }
 
+    // Role is picked from the gated addMemberRoleOptions list above — R4
+    // never sees anything but "member" in that dropdown, LEADER never sees
+    // "leader"/"admin", so no extra client-side clamping is needed here,
+    // but the value is still re-validated against that same list as
+    // defense in depth (matches the rest of this app's pattern of every
+    // handler re-checking permissions itself, not just relying on hidden UI).
     const requestedRole = (el.querySelector("#admNewMemberRole")?.value || "member").trim();
     const role = addMemberRoleOptions.includes(requestedRole) ? requestedRole : "member";
 
@@ -3902,6 +3933,13 @@ function renderAdmin(el) {
       return;
     }
 
+    // Deliberately NO pin here — leadership can add a member knowing only
+    // their gamer name, alliance, and role (per the "add a member before
+    // they have a Gamer ID or PIN" requirement). The record is left with no
+    // pin, which memberAccountStatus() reads as PENDING_SETUP; the member
+    // later claims this exact record and sets their own PIN via "First
+    // Time Setup" on the sign-in screen (see renderClaimPane below) —
+    // never a second, duplicate record.
     Store.members = [...Store.members, { id: "m" + Date.now(), name, gamerId, alliance, role, pin: "", preferredLanguage: DEFAULT_LANGUAGE_CODE }];
     renderAdmin(el);
   });
@@ -5617,13 +5655,13 @@ function facilitySortedFilteredRecords(records) {
   return rows;
 }
 
-function renderFacilityBuffSummaryHtml(records) {
-  const summary = computeFacilityBuffSummary(records);
+function renderFacilityBuffSummaryHtml(records, viewingAlliance) {
+  const summary = computeFacilityBuffSummary(records, viewingAlliance);
   const types = Object.keys(summary);
   return `
     <div class="panel" style="${accentPanelStyle("var(--console-magenta)")}">
       ${accentPanelHeaderHtml("var(--console-magenta)", "⚡", "Active Facility Buff Summary")}
-      <p style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">Auto-calculated from every facility currently marked OWNED — same type + different level stacks; same type + same level counts once.</p>
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">Auto-calculated from every facility currently marked OWNED — same type + different level stacks; same type + same level counts once, no matter how many duplicate physical facilities are recorded (a rotating facility currently owned by another alliance this cycle doesn't count here either).</p>
       ${
         types.length
           ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:10px;">
@@ -5646,6 +5684,45 @@ function renderFacilityBuffSummaryHtml(records) {
   `;
 }
 
+// FACILITIES NEEDED (spec sections 1/2/6/20/21) — sits above the buff
+// summary per the spec's "near the top" placement. Purely a read of
+// facilityNeededSummary (data.js) — a type shows every still-missing
+// compatible level (each with its auto-derived buff name/amount, exactly
+// like everywhere else in this feature) or a green COMPLETE state once
+// every valid level for that type is owned at least once. Visible to every
+// role (Members included, per spec section 22) since it's pure display —
+// no edit affordances live here at all.
+function renderFacilitiesNeededHtml(viewingAlliance) {
+  const needed = facilityNeededSummary(viewingAlliance);
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--accent-red)")}">
+      ${accentPanelHeaderHtml("var(--accent-red)", "🎯", "Facilities Needed")}
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">Compatible levels this alliance is still missing, by type. A type reads COMPLETE once every one of its valid levels is owned — duplicate same-level facilities never count toward this.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:10px;">
+        ${needed
+          .map((n) => {
+            const accent = FACILITY_TYPE_ACCENT[n.type];
+            return `
+          <div style="background:var(--panel-2);border:1px solid ${n.complete ? "var(--accent-green)" : accent};border-radius:6px;padding:10px 12px;">
+            <div style="font-size:10px;letter-spacing:.1em;color:${n.complete ? "var(--accent-green)" : accent};font-weight:700;">${n.label.toUpperCase()}</div>
+            ${
+              n.complete
+                ? `<div style="font-size:14px;font-weight:800;color:var(--accent-green);margin:4px 0;">✓ COMPLETE</div>`
+                : n.needed
+                    .map(
+                      (lvl) =>
+                        `<div style="margin:4px 0;"><div style="font-size:13px;font-weight:800;color:#fff;">Lv ${lvl.level}</div><div style="font-size:10.5px;color:var(--text-faint);">+${lvl.buffAmount}% ${escapeHtml(n.buffName)}</div></div>`
+                    )
+                    .join("")
+            }
+          </div>`;
+          })
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
 function renderFacilitiesHtml(viewingAlliance, allianceMembers, canManage) {
   const allRecords = allianceFacilityRecords(viewingAlliance);
   const owned = allRecords.filter((r) => r.status === "OWNED");
@@ -5657,7 +5734,9 @@ function renderFacilitiesHtml(viewingAlliance, allianceMembers, canManage) {
   };
   const rows = facilitySortedFilteredRecords(allRecords);
   return `
-    ${renderFacilityBuffSummaryHtml(allRecords)}
+    ${renderFacilitiesNeededHtml(viewingAlliance)}
+
+    ${renderFacilityBuffSummaryHtml(allRecords, viewingAlliance)}
 
     <div class="panel" style="${accentPanelStyle("var(--console-icecyan)")}">
       ${accentPanelHeaderHtml("var(--console-icecyan)", "🏰", `Facility Ownership Tracker (${allRecords.length})`, canManage ? `<button class="btn small primary" id="facilityAdd">+ Add Facility</button>` : "")}
@@ -5708,20 +5787,41 @@ function renderFacilitiesHtml(viewingAlliance, allianceMembers, canManage) {
         rows.length
           ? `<div style="overflow-x:auto;">
               <table>
-                <thead><tr><th>TYPE</th><th>LV</th><th>COORD</th><th>BUFF</th><th>STATUS</th><th>PRIORITY</th><th>PROTECTION ENDS (UTC)</th><th>PROTECTION REMAINING</th><th>ASSIGNED TO</th><th>NOTES</th>${canManage ? "<th></th>" : ""}</tr></thead>
+                <thead><tr><th>TYPE</th><th>LV</th><th>COORD</th><th>BUFF</th><th>STATUS</th><th>CONTRIBUTION</th><th>PRIORITY</th><th>SHARING</th><th>ROTATION</th><th>PROTECTION ENDS (UTC)</th><th>PROTECTION REMAINING</th><th>ASSIGNED TO</th><th>NOTES</th>${canManage ? "<th></th>" : ""}</tr></thead>
                 <tbody>
                   ${rows
                     .map((r) => {
                       const buff = facilityBuffInfo(r.type, r.level);
                       const accent = FACILITY_TYPE_ACCENT[r.type];
                       const protectedNow = facilityIsProtected(r);
+                      // Physical ownership vs buff contribution (spec
+                      // sections 3-7/24) — a duplicate same-Type-same-Level
+                      // OWNED facility is never hidden, it just reads as
+                      // contributing nothing further once another record
+                      // already covers that exact Type+Level.
+                      const contributes = r.status === "OWNED" ? facilityBuffContributes(viewingAlliance, r) : null;
                       return `<tr>
                         <td><span style="color:${accent};font-weight:700;">${FACILITY_DEFINITIONS[r.type].label}</span></td>
                         <td style="font-variant-numeric:tabular-nums;">${r.level}</td>
                         <td style="font-variant-numeric:tabular-nums;">${facilityCoordinateLabel(r)}</td>
                         <td style="font-size:11.5px;">${buff ? `${escapeHtml(buff.buffName)} +${buff.buffAmount}%${buff.permanentLosses ? ` <span style="color:var(--accent-red);">⚠</span>` : ""}` : "—"}</td>
                         <td>${facilityStatusBadgeHtml(r.status)}${protectedNow ? ` <span style="font-size:9px;color:var(--accent-purple);">🛡</span>` : ""}</td>
+                        <td style="font-size:10px;">${
+                          r.status !== "OWNED"
+                            ? `<span style="color:var(--text-faint);">—</span>`
+                            : contributes
+                              ? `<span style="display:inline-block;padding:2px 6px;border-radius:3px;font-weight:700;letter-spacing:.04em;background:color-mix(in srgb, var(--accent-green) 18%, transparent);color:var(--accent-green);border:1px solid var(--accent-green);">ACTIVE</span>`
+                              : `<span title="Already provided by another ${escapeHtml(FACILITY_DEFINITIONS[r.type].label)} Lv${r.level} facility." style="display:inline-block;padding:2px 6px;border-radius:3px;font-weight:700;letter-spacing:.03em;background:color-mix(in srgb, var(--accent-gold) 18%, transparent);color:var(--accent-gold);border:1px solid var(--accent-gold);">DUPLICATE — NO ADD'L BUFF</span>`
+                        }</td>
                         <td style="text-transform:capitalize;">${(r.priority || "NORMAL").toLowerCase()}</td>
+                        <td style="font-size:11px;color:var(--text-dim);">${r.sharingEnabled ? `Shared w/ <b style="color:var(--text);">${escapeHtml(r.sharedWithAlliance || "—")}</b>` : "Not Shared"}</td>
+                        <td style="font-size:11px;color:var(--text-dim);white-space:nowrap;">${
+                          r.rotating
+                            ? `${escapeHtml(r.currentRotationOwnerAlliance || viewingAlliance)} → ${escapeHtml(r.nextRotationOwnerAlliance || r.rotationAlliance || "—")}${
+                                canManage ? ` <button data-facswitchrot="${r.id}" class="btn small" style="padding:2px 6px;font-size:10px;">Switch</button>` : ""
+                              }`
+                            : "—"
+                        }</td>
                         <td style="font-size:11px;color:var(--text-dim);font-variant-numeric:tabular-nums;">${r.protectionEndsAt ? fmtUtcDateTime(r.protectionEndsAt) : "—"}</td>
                         <td style="font-size:11px;font-variant-numeric:tabular-nums;color:${protectedNow ? "var(--accent-purple)" : "var(--text-faint)"};font-weight:${protectedNow ? "700" : "400"};" data-factimer="${r.id}" data-endsat="${r.protectionEndsAt || ""}">${facilityCountdownText(r.protectionEndsAt)}</td>
                         <td>${escapeHtml(r.assignedToName || "—")}</td>
@@ -5764,6 +5864,15 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
   // actually left right now, rather than showing whatever was typed when it
   // was first captured (which would drift stale every time this modal reopens).
   const facmProtInit = facilityEndsAtToProtectionInput(existing?.protectionEndsAt);
+  // Sharing/Rotation (spec sections 8-17) both pick from the existing State
+  // alliance list — never a free-typed tag — same "no manual typing" rule
+  // used for every other alliance-tag select in this app. A facility can't
+  // be shared/rotated with its OWN alliance, so viewingAlliance is excluded.
+  const otherAlliances = Store.alliances.filter((a) => a !== viewingAlliance);
+  const otherAllianceOptionsHtml = (selected) =>
+    otherAlliances.length
+      ? otherAlliances.map((a) => `<option value="${escapeHtml(a)}" ${a === selected ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")
+      : `<option value="">No other alliances yet</option>`;
 
   const levelOptionsHtml = (type, selectedLevel) =>
     facilityTypeLevels(type)
@@ -5811,13 +5920,44 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
           <select id="facmPriority">${FACILITY_PRIORITIES.map((p) => `<option value="${p}" ${(existing?.priority || "NORMAL") === p ? "selected" : ""}>${p.charAt(0) + p.slice(1).toLowerCase()}</option>`).join("")}</select>
         </div>
       </div>
-      <div id="facmCapNotice" style="font-size:11px;color:var(--text-faint);margin:-4px 0 4px;"></div>
+      <div id="facmCapNotice" style="font-size:11px;color:var(--accent-gold);margin:-4px 0 4px;"></div>
       <div class="field">
         <label>ASSIGNED TO</label>
         <select id="facmAssigned">
           <option value="">Unassigned</option>
           ${members.map((m) => `<option value="${m.id}" ${existing?.assignedTo === m.id ? "selected" : ""}>${escapeHtml(m.name)}</option>`).join("")}
         </select>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>SHARING</label>
+          <select id="facmSharing">
+            <option value="NOT_SHARED" ${!existing?.sharingEnabled ? "selected" : ""}>Not Shared</option>
+            <option value="SHARED" ${existing?.sharingEnabled ? "selected" : ""}>Shared</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>ROTATING FACILITY</label>
+          <select id="facmRotating">
+            <option value="NO" ${!existing?.rotating ? "selected" : ""}>No</option>
+            <option value="YES" ${existing?.rotating ? "selected" : ""}>Yes</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" id="facmSharedWithWrap" style="display:none;">
+        <label>SHARED WITH ALLIANCE</label>
+        <select id="facmSharedWith">${otherAllianceOptionsHtml(existing?.sharedWithAlliance)}</select>
+      </div>
+      <div id="facmRotationWrap" style="display:none;">
+        <div class="field">
+          <label>ROTATING ALLIANCE</label>
+          <select id="facmRotationAlliance">${otherAllianceOptionsHtml(existing?.rotationAlliance)}</select>
+        </div>
+        <div id="facmRotationStatus" style="font-size:11px;color:var(--text-faint);margin:-4px 0 8px;"></div>
+        <div class="field">
+          <label>ROTATION NOTES (OPTIONAL)</label>
+          <textarea id="facmRotationNotes" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:9px 10px;font-size:13px;min-height:40px;resize:vertical;">${existing?.rotationNotes ? escapeHtml(existing.rotationNotes) : ""}</textarea>
+        </div>
       </div>
       <div class="field">
         <label>PROTECTION REMAINING (OPTIONAL)</label>
@@ -5857,39 +5997,35 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
     buffTextEl.textContent = buff ? `${buff.buffName} +${buff.buffAmount}%${buff.permanentLosses ? " — WARNING: causes permanent troop losses on capture" : ""}` : "—";
     buffTextEl.style.color = buff?.permanentLosses ? "var(--accent-red)" : "var(--text-dim)";
   };
-  // Ownership-cap awareness (see FACILITY_MAX_ACTIVE in data.js): only
-  // applies when STATUS is set to OWNED — a TARGET/CONTESTED record of the
-  // same type is still trackable beyond the cap, it just can't be marked
-  // OWNED past it. When Status is OWNED, the Level dropdown is filtered down
-  // to levels that aren't already an OWNED slot for this type (the record's
-  // OWN current type+level, if any, is always kept available so re-saving
-  // it in place never locks you out of your own record). If NO level is
-  // available, Save is disabled and a "Maximum X facilities reached" notice
-  // is shown, per spec's UI BEHAVIOR section.
+  // Duplicate-bonus awareness (spec sections 3-7/24 — see the big comment on
+  // FACILITY_MAX_ACTIVE in data.js) — the Level dropdown is NEVER filtered
+  // or disabled anymore, and Save is never blocked for this reason: leadership
+  // can mark any number of same-Type-same-Level facilities OWNED. This just
+  // surfaces, purely informationally, when the currently-selected Type+Level
+  // is already OWNED by another record for this alliance, so it's clear
+  // before saving that this one will read as a duplicate (no additional
+  // buff) rather than a surprise after the fact.
   const refreshLevels = (keepLevel) => {
     const type = typeEl.value;
     const allLevels = facilityTypeLevels(type);
+    const level = allLevels.includes(keepLevel) ? keepLevel : allLevels[0];
+    levelEl.innerHTML = allLevels.map((lvl) => `<option value="${lvl}" ${lvl === level ? "selected" : ""}>Level ${lvl}</option>`).join("");
+    levelEl.disabled = false;
+    saveBtn.disabled = false;
+    saveBtn.style.opacity = "";
+    saveBtn.style.cursor = "";
+    refreshDuplicateNotice();
+  };
+  const refreshDuplicateNotice = () => {
+    const type = typeEl.value;
+    const level = Number(levelEl.value);
     const wantOwned = statusEl.value === "OWNED";
-    const activeLevels = allianceActiveFacilityLevels(viewingAlliance, type, existing?.id);
-    const availableLevels = wantOwned ? allLevels.filter((lvl) => !activeLevels.includes(lvl)) : allLevels;
-    const level = availableLevels.includes(keepLevel) ? keepLevel : availableLevels[0] ?? allLevels[0];
-    levelEl.innerHTML = (availableLevels.length ? availableLevels : allLevels)
-      .map((lvl) => `<option value="${lvl}" ${lvl === level ? "selected" : ""}>Level ${lvl}</option>`)
-      .join("");
-    const maxed = wantOwned && !availableLevels.length;
-    levelEl.disabled = maxed;
-    if (maxed) {
-      capNoticeEl.textContent = `Maximum ${FACILITY_DEFINITIONS[type].label} facilities reached (${facilityMaxActiveForType(type)}/${facilityMaxActiveForType(type)} active) — free one up before marking another OWNED.`;
-      capNoticeEl.style.color = "var(--accent-red)";
-    } else if (wantOwned && activeLevels.length) {
-      capNoticeEl.textContent = `${FACILITY_DEFINITIONS[type].label}: ${activeLevels.length}/${facilityMaxActiveForType(type)} already active (Level ${activeLevels.join(", ")}).`;
-      capNoticeEl.style.color = "var(--text-faint)";
-    } else {
-      capNoticeEl.textContent = "";
-    }
-    saveBtn.disabled = maxed;
-    saveBtn.style.opacity = maxed ? "0.5" : "";
-    saveBtn.style.cursor = maxed ? "not-allowed" : "";
+    const alreadyOwnedElsewhere =
+      wantOwned &&
+      (Store.allianceFacilities[viewingAlliance] || []).some((r) => r.id !== existing?.id && r.type === type && r.level === level && r.status === "OWNED");
+    capNoticeEl.textContent = alreadyOwnedElsewhere
+      ? `${FACILITY_DEFINITIONS[type].label} Lv${level} is already OWNED by another facility — this one can still be marked OWNED, but its buff will read as a duplicate (no additional buff), since only one ${FACILITY_DEFINITIONS[type].label} Lv${level} counts toward the alliance's total.`
+      : "";
   };
   const refreshCoords = (keepCoord) => {
     const coords = facilityCoordinates(typeEl.value, Number(levelEl.value));
@@ -5900,8 +6036,43 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
   refreshLevels(initialLevel);
 
   typeEl.addEventListener("change", () => { refreshLevels(); refreshCoords(); refreshBuffText(); });
-  levelEl.addEventListener("change", () => { refreshCoords(); refreshBuffText(); });
-  statusEl.addEventListener("change", () => { refreshLevels(Number(levelEl.value)); refreshCoords(coordEl.value); refreshBuffText(); });
+  levelEl.addEventListener("change", () => { refreshCoords(); refreshBuffText(); refreshDuplicateNotice(); });
+  statusEl.addEventListener("change", () => { refreshDuplicateNotice(); });
+
+  // Sharing / Rotation (spec sections 8-17) — both start hidden and only
+  // reveal their dependent fields once enabled, same show/hide pattern used
+  // throughout this app's conditional form sections.
+  const sharingEl = overlay.querySelector("#facmSharing");
+  const sharedWithWrap = overlay.querySelector("#facmSharedWithWrap");
+  const rotatingEl = overlay.querySelector("#facmRotating");
+  const rotationWrap = overlay.querySelector("#facmRotationWrap");
+  const rotationAllianceEl = overlay.querySelector("#facmRotationAlliance");
+  const rotationStatusEl = overlay.querySelector("#facmRotationStatus");
+  const refreshSharingVisibility = () => {
+    sharedWithWrap.style.display = sharingEl.value === "SHARED" ? "" : "none";
+  };
+  // Shows the CURRENT/NEXT rotation cycle. For an already-rotating record
+  // this reads its actual stored current/next owners (never resets them
+  // just because the modal reopened); for a brand-new rotation (or one whose
+  // Rotating Alliance was just changed to a different partner) it previews
+  // what saving now would set — this alliance owns it THIS cycle, the
+  // selected partner owns it NEXT — matching "Switch Rotation" being the
+  // only way to actually advance the cycle (see switchFacilityRotation).
+  const refreshRotationVisibility = () => {
+    const on = rotatingEl.value === "YES";
+    rotationWrap.style.display = on ? "" : "none";
+    if (!on) { rotationStatusEl.textContent = ""; return; }
+    const partner = rotationAllianceEl.value || "—";
+    const samePartner = existing?.rotating && existing?.rotationAlliance === partner;
+    const cur = samePartner ? existing.currentRotationOwnerAlliance || viewingAlliance : viewingAlliance;
+    const next = samePartner ? existing.nextRotationOwnerAlliance || partner : partner;
+    rotationStatusEl.textContent = `Current: ${cur}  ·  Next: ${next}${samePartner ? " (use Switch Rotation in the table to advance the cycle)" : ""}`;
+  };
+  sharingEl.addEventListener("change", refreshSharingVisibility);
+  rotatingEl.addEventListener("change", refreshRotationVisibility);
+  rotationAllianceEl?.addEventListener("change", refreshRotationVisibility);
+  refreshSharingVisibility();
+  refreshRotationVisibility();
 
   const protDaysEl = overlay.querySelector("#facmProtDays");
   const protHoursEl = overlay.querySelector("#facmProtHours");
@@ -5938,15 +6109,42 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
     }
     const [coordinateX, coordinateY] = coord.split(":").map(Number);
     const status = FACILITY_STATUSES.includes(overlay.querySelector("#facmStatus").value) ? overlay.querySelector("#facmStatus").value : "TARGET";
-    // Ownership limit — enforced again here (not just via the disabled Level
-    // dropdown above) so it can never be bypassed, e.g. by a stale DOM state.
-    if (status === "OWNED" && !canAddActiveFacility(viewingAlliance, type, level, existing?.id)) {
-      errEl.textContent = `Maximum ${FACILITY_DEFINITIONS[type].label} facilities reached (max ${facilityMaxActiveForType(type)} active, levels must differ).`;
-      return;
-    }
+    // NOTE: there is deliberately NO ownership-cap check here anymore —
+    // leadership may mark any number of same-Type-same-Level facilities
+    // OWNED (spec: "Do not prevent leadership from recording duplicate
+    // same-level facilities... allow them to be marked OWNED"). Only one of
+    // them will count toward the buff total (facilityBuffContributes), which
+    // is surfaced via refreshDuplicateNotice above and the CONTRIBUTION
+    // column in the table — never by blocking the save.
     if (facilityCoordinateInUse(viewingAlliance, coordinateX, coordinateY, existing?.id)) {
       errEl.textContent = "Another active facility record already tracks this coordinate for this alliance.";
       return;
+    }
+    const sharingEnabled = overlay.querySelector("#facmSharing").value === "SHARED";
+    const sharedWithAlliance = sharingEnabled ? overlay.querySelector("#facmSharedWith").value || null : null;
+    if (sharingEnabled && !sharedWithAlliance) {
+      errEl.textContent = "Select which alliance this facility is shared with.";
+      return;
+    }
+    const rotating = overlay.querySelector("#facmRotating").value === "YES";
+    const rotationAlliance = rotating ? overlay.querySelector("#facmRotationAlliance").value || null : null;
+    if (rotating && !rotationAlliance) {
+      errEl.textContent = "Select the alliance this facility rotates ownership with.";
+      return;
+    }
+    // Rotation cycle (spec sections 11-17): starting Yes for the first time,
+    // or picking a different partner alliance, always resets to "this
+    // alliance owns it THIS cycle, the partner owns it NEXT" — the only way
+    // to actually ADVANCE the cycle from there is the dedicated Switch
+    // Rotation button in the table (switchFacilityRotation), never by
+    // re-saving this form. Re-saving an unchanged rotating facility (same
+    // partner) always keeps its current/next owners exactly as they are.
+    let currentRotationOwnerAlliance = null;
+    let nextRotationOwnerAlliance = null;
+    if (rotating && rotationAlliance) {
+      const samePartner = existing?.rotating && existing?.rotationAlliance === rotationAlliance;
+      currentRotationOwnerAlliance = samePartner ? existing.currentRotationOwnerAlliance || viewingAlliance : viewingAlliance;
+      nextRotationOwnerAlliance = samePartner ? existing.nextRotationOwnerAlliance || rotationAlliance : rotationAlliance;
     }
     const assignedTo = overlay.querySelector("#facmAssigned").value || null;
     const assignedMember = members.find((m) => m.id === assignedTo);
@@ -5968,6 +6166,17 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
       // free, since it's summed into total seconds before being added to
       // "now" rather than stored as separate D/H/M/S fields.
       protectionEndsAt: currentProtectionEndsAt(),
+      // Sharing (spec sections 8-10) is purely informational — it never
+      // changes who this record is stored under or whose buff it counts
+      // toward; only Rotation's currentRotationOwnerAlliance does that (see
+      // facilityCountsTowardOwner in data.js).
+      sharingEnabled,
+      sharedWithAlliance,
+      rotating,
+      rotationAlliance,
+      currentRotationOwnerAlliance,
+      nextRotationOwnerAlliance,
+      rotationNotes: overlay.querySelector("#facmRotationNotes")?.value.trim() || "",
       notes: overlay.querySelector("#facmNotes").value.trim(),
       createdAt: existing?.createdAt || Date.now(),
       updatedAt: Date.now(),
@@ -6003,6 +6212,18 @@ function wireFacilitiesSection(el, user, viewingAlliance, allianceMembers, canMa
       if (!canManage || !viewingAlliance) return;
       if (!confirm("Delete this facility record? The buff summary will recalculate immediately.")) return;
       deleteAllianceFacility(viewingAlliance, btn.dataset.facdel);
+      router();
+    })
+  );
+  // SWITCH ROTATION (spec section 15) — ADMIN/LEADER/R4 only, same canManage
+  // gate as every other edit control on this tab. Swaps current/next
+  // rotation owner in place (see switchFacilityRotation in data.js); the
+  // button only renders at all for rotating records, but this still guards
+  // defensively in case of stale DOM state.
+  el.querySelectorAll("[data-facswitchrot]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (!canManage || !viewingAlliance) return;
+      switchFacilityRotation(viewingAlliance, btn.dataset.facswitchrot);
       router();
     })
   );
