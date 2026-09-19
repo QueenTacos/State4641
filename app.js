@@ -5808,11 +5808,11 @@ function openFacilityModal(viewingAlliance, members, existing, rerender) {
       </div>
       <div class="field">
         <label>PROTECTION REMAINING (OPTIONAL)</label>
-        <div class="field-row" style="margin-bottom:6px;">
-          <div class="field" style="min-width:0;"><label style="font-size:9.5px;">DAYS</label><input id="facmProtDays" type="number" min="0" step="1" style="min-width:0;width:100%;" value="${facmProtInit.days}" /></div>
-          <div class="field" style="min-width:0;"><label style="font-size:9.5px;">HOURS</label><input id="facmProtHours" type="number" min="0" max="23" step="1" style="min-width:0;width:100%;" value="${facmProtInit.hours}" /></div>
-          <div class="field" style="min-width:0;"><label style="font-size:9.5px;">MINUTES</label><input id="facmProtMinutes" type="number" min="0" max="59" step="1" style="min-width:0;width:100%;" value="${facmProtInit.minutes}" /></div>
-          <div class="field" style="min-width:0;"><label style="font-size:9.5px;">SECONDS</label><input id="facmProtSeconds" type="number" min="0" max="59" step="1" style="min-width:0;width:100%;" value="${facmProtInit.seconds}" /></div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:6px;">
+          <div class="field" style="min-width:0;"><label style="font-size:9.5px;">DAYS</label><input id="facmProtDays" type="number" min="0" step="1" style="min-width:0;width:100%;padding:8px 6px;" value="${facmProtInit.days}" /></div>
+          <div class="field" style="min-width:0;"><label style="font-size:9.5px;">HOURS</label><input id="facmProtHours" type="number" min="0" max="23" step="1" style="min-width:0;width:100%;padding:8px 6px;" value="${facmProtInit.hours}" /></div>
+          <div class="field" style="min-width:0;"><label style="font-size:9.5px;">MINUTES</label><input id="facmProtMinutes" type="number" min="0" max="59" step="1" style="min-width:0;width:100%;padding:8px 6px;" value="${facmProtInit.minutes}" /></div>
+          <div class="field" style="min-width:0;"><label style="font-size:9.5px;">SECONDS</label><input id="facmProtSeconds" type="number" min="0" max="59" step="1" style="min-width:0;width:100%;padding:8px 6px;" value="${facmProtInit.seconds}" /></div>
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
           <div id="facmProtPreview" style="font-size:11px;color:var(--text-faint);"></div>
