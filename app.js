@@ -55,6 +55,27 @@ function roleLabel(role) {
 }
 
 // ---------------------------------------------------------------------------
+// MEMBER ACCOUNT STATUS — "PENDING SETUP" vs "ACTIVE". Deliberately NOT a
+// stored field: it's derived from whether the member already has a PIN, the
+// same signal the sign-in/Reset-PIN code already keys off of (see
+// renderLoginPane / the "No Pin Yet" Admin column above). This means every
+// existing member record is automatically "ACTIVE" (they already have a
+// pin from the old required-PIN-at-creation flow or from Create Account),
+// and nothing needs a data migration or a new seeded default.
+// ---------------------------------------------------------------------------
+function memberAccountStatus(m) {
+  if (m.permanent) return "ACTIVE";
+  return m.pin ? "ACTIVE" : "PENDING_SETUP";
+}
+function accountStatusBadgeHtml(m) {
+  const pending = memberAccountStatus(m) === "PENDING_SETUP";
+  const accentVar = pending ? "var(--accent-amber)" : "var(--accent-green)";
+  return `<span style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.04em;white-space:nowrap;background:color-mix(in srgb, ${accentVar} 15%, transparent);color:${accentVar};border:1px solid ${accentVar};">${
+    pending ? "● PENDING SETUP" : "● ACTIVE"
+  }</span>`;
+}
+
+// ---------------------------------------------------------------------------
 // ROLE SYSTEM — four roles: admin, leader, officer (displayed as "R4"),
 // member. Hierarchy: ADMIN > LEADER > R4 > MEMBER.
 //
@@ -211,6 +232,7 @@ function openSignIn() {
       <h3>${t("auth.signInTitle")}</h3>
       <div class="tabs" style="margin-bottom:2px;">
         <button data-authtab="login" class="active">${t("auth.existingMember")}</button>
+        <button data-authtab="claim">First Time Setup</button>
         <button data-authtab="signup">${t("auth.newMember")}</button>
       </div>
       <div id="authPane"></div>
@@ -225,6 +247,7 @@ function openSignIn() {
   const showTab = (tab) => {
     tabBtns.forEach((b) => b.classList.toggle("active", b.dataset.authtab === tab));
     if (tab === "signup") renderSignUpPane(pane, overlay);
+    else if (tab === "claim") renderClaimPane(pane, overlay);
     else renderLoginPane(pane, overlay);
   };
   tabBtns.forEach((b) => b.addEventListener("click", () => showTab(b.dataset.authtab)));
@@ -333,6 +356,139 @@ function renderSignUpPane(pane, overlay) {
   };
   pane.querySelector("#suGo").onclick = go;
   pinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+}
+
+// ---------------------------------------------------------------------------
+// FIRST TIME SETUP — claims a PENDING_SETUP member record that leadership
+// already created (see the Admin "Add Member" row above, which now leaves
+// off gamerId/pin entirely), rather than creating a brand-new record the
+// way the "New Member" tab does. Two steps:
+//   1) find the pending record by Gamer Name (asking for Alliance too if
+//      more than one pending record shares that name);
+//   2) let the PLAYER themselves fill in Gamer ID (prefilled if leadership
+//      already set one) and create their own PIN, then activate.
+// The existing record's id/name/alliance/role are left untouched — this
+// only ever fills in the fields leadership left blank, so there is never a
+// second, duplicate record for the same person (see updateClaimedMember).
+// ---------------------------------------------------------------------------
+function pendingMembersByName(name) {
+  const needle = name.trim().toLowerCase();
+  if (!needle) return [];
+  return Store.members.filter((m) => !m.permanent && !m.pin && m.name.trim().toLowerCase() === needle);
+}
+
+function renderClaimPane(pane, overlay) {
+  pane.innerHTML = `
+    <p style="color:var(--text-dim);font-size:12px;margin-top:8px;">Already added by your alliance's leadership? Find your account below and finish setting it up.</p>
+    <input id="clName" placeholder="Gamer name" />
+    <div id="clAllianceField" style="display:none;">
+      <select id="clAlliance">
+        <option value="" disabled selected>Select your alliance</option>
+      </select>
+    </div>
+    <div id="clErr" style="color:var(--accent-red);font-size:11.5px;margin-top:-4px;min-height:28px;"></div>
+    <button class="btn primary" id="clFind" style="width:100%;">Find My Account</button>
+    <div id="clSetupFields"></div>
+  `;
+  const errEl = pane.querySelector("#clErr");
+  const allianceField = pane.querySelector("#clAllianceField");
+  const allianceSelect = pane.querySelector("#clAlliance");
+  const nameInput = pane.querySelector("#clName");
+  const setupFieldsEl = pane.querySelector("#clSetupFields");
+  let matchedMember = null;
+
+  const renderSetupStep = (member) => {
+    matchedMember = member;
+    pane.querySelector("#clFind").style.display = "none";
+    nameInput.disabled = true;
+    allianceSelect.disabled = true;
+    setupFieldsEl.innerHTML = `
+      <p style="color:var(--accent-green);font-size:12px;margin:10px 0 2px;">Account found for <strong>${escapeHtml(member.name)}</strong> (${escapeHtml(member.alliance || "no alliance")}). Finish setting it up below.</p>
+      <input id="clGamerId" placeholder="${t("auth.gamerIdPlaceholder")}" value="${escapeHtml(member.gamerId || "")}" />
+      <select id="clLanguage">
+        <option value="" disabled ${member.preferredLanguage ? "" : "selected"}>${t("auth.selectLanguage")}</option>
+        ${SUPPORTED_LANGUAGES.map((l) => `<option value="${l.code}" ${member.preferredLanguage === l.code ? "selected" : ""}>${escapeHtml(l.label)} — ${escapeHtml(l.englishName)}</option>`).join("")}
+      </select>
+      <input id="clPin" placeholder="Create a 4-digit PIN" inputmode="numeric" maxlength="4" style="letter-spacing:.3em;" />
+      <input id="clPinConfirm" placeholder="Confirm PIN" inputmode="numeric" maxlength="4" style="letter-spacing:.3em;" />
+      <div id="clSetupErr" style="color:var(--accent-red);font-size:11.5px;margin-top:-4px;min-height:28px;"></div>
+      <button class="btn primary" id="clActivate" style="width:100%;">Activate My Account</button>
+    `;
+    const gamerIdInput = setupFieldsEl.querySelector("#clGamerId");
+    const pinInput = setupFieldsEl.querySelector("#clPin");
+    const pinConfirmInput = setupFieldsEl.querySelector("#clPinConfirm");
+    const setupErrEl = setupFieldsEl.querySelector("#clSetupErr");
+    [pinInput, pinConfirmInput].forEach((inp) =>
+      inp.addEventListener("input", () => { inp.value = inp.value.replace(/\D/g, "").slice(0, 4); })
+    );
+    const activate = () => {
+      setupErrEl.textContent = "";
+      const gamerId = gamerIdInput.value.trim();
+      const preferredLanguage = setupFieldsEl.querySelector("#clLanguage").value;
+      const pin = pinInput.value.trim();
+      const pinConfirm = pinConfirmInput.value.trim();
+      if (!gamerId) { setupErrEl.textContent = t("auth.errEnterGamerId"); return; }
+      if (!preferredLanguage) { setupErrEl.textContent = t("auth.errSelectLanguage"); return; }
+      if (!/^\d{4}$/.test(pin)) { setupErrEl.textContent = t("auth.errPinFormat"); return; }
+      if (pin !== pinConfirm) { setupErrEl.textContent = "PINs don't match."; return; }
+
+      const members = Store.members;
+      const idx = members.findIndex((m) => m.id === matchedMember.id);
+      if (idx === -1) { setupErrEl.textContent = "This account no longer exists — ask your leadership to re-add you."; return; }
+      if (members[idx].pin) { setupErrEl.textContent = "This account has already been activated. Use Existing Member sign-in instead."; return; }
+      const idTaken = members.some((m) => m.id !== matchedMember.id && m.gamerId && m.gamerId.toLowerCase() === gamerId.toLowerCase());
+      if (idTaken) { setupErrEl.textContent = t("auth.errAccountExists"); return; }
+
+      members[idx] = { ...members[idx], gamerId, pin, preferredLanguage };
+      Store.members = members;
+      Store.currentUser = members[idx];
+      overlay.remove();
+      applyLocaleAndRerender();
+    };
+    setupFieldsEl.querySelector("#clActivate").onclick = activate;
+    pinConfirmInput.addEventListener("keydown", (e) => { if (e.key === "Enter") activate(); });
+  };
+
+  const find = () => {
+    const previouslySelectedAlliance = allianceSelect.value;
+    errEl.textContent = "";
+    setupFieldsEl.innerHTML = "";
+    const name = nameInput.value.trim();
+    if (!name) { errEl.textContent = t("auth.errEnterName"); return; }
+    const matches = pendingMembersByName(name);
+    if (!matches.length) {
+      errEl.textContent = "No pending account found with that name. Ask your leadership to add you first, or use New Member instead.";
+      allianceField.style.display = "none";
+      return;
+    }
+    if (matches.length === 1) {
+      allianceField.style.display = "none";
+      renderSetupStep(matches[0]);
+      return;
+    }
+    const candidateKey = matches.map((m) => m.id).sort().join(",");
+    if (allianceSelect.dataset.candidateKey !== candidateKey) {
+      allianceSelect.dataset.candidateKey = candidateKey;
+      allianceSelect.innerHTML = `
+        <option value="" disabled selected>Select your alliance</option>
+        ${matches.map((m) => `<option value="${escapeHtml(m.alliance || "")}">${escapeHtml(m.alliance || "No alliance")}</option>`).join("")}
+      `;
+    } else if (previouslySelectedAlliance) {
+      allianceSelect.value = previouslySelectedAlliance;
+    }
+    allianceField.style.display = "block";
+    const allianceValue = allianceSelect.value;
+    if (!allianceValue) {
+      errEl.textContent = "More than one pending account has that name — select your alliance to continue.";
+      return;
+    }
+    const exact = matches.find((m) => (m.alliance || "") === allianceValue);
+    if (!exact) { errEl.textContent = "Couldn't match that alliance — try again."; return; }
+    renderSetupStep(exact);
+  };
+  pane.querySelector("#clFind").onclick = find;
+  allianceSelect.addEventListener("change", find);
+  nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") find(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -1015,6 +1171,7 @@ const ALLIANCE_DASH_SUBTABS = [
   { id: "calendar", label: "Calendar" },
   { id: "notifications", label: "Notifications" },
   { id: "event-times", label: "Event Times" },
+  { id: "facilities", label: "Facilities" },
   { id: "participation", label: "Participation" },
   { id: "performance", label: "Performance" },
   { id: "discipline", label: "Discipline" },
@@ -3149,13 +3306,18 @@ function renderAdmin(el) {
     else if (!STATE_DASHBOARD_TAB_IDS.includes(adminActiveTab)) adminActiveTab = "members";
   }
   const stateDashboardTabs = ADMIN_TABS.filter((tb) => STATE_DASHBOARD_TAB_IDS.includes(tb.id));
+  const addMemberRoleOptions = !officerScoped
+    ? ["member", "officer", "leader", "admin"]
+    : canManageR4Roles(user)
+    ? ["member", "officer"]
+    : ["member"];
 
   el.innerHTML = `
     <div class="eyebrow">// ${t("admin.eyebrow").toUpperCase()}</div>
     <h1 class="page-title" style="color:var(--accent-gold)">admin</h1>
     ${
       officerScoped
-        ? `<div class="panel" style="background:rgba(255,176,32,.1);border-color:var(--accent-amber);">
+        ? `<div class="panel" style="background:rgba(248,106,56,.1);border-color:var(--accent-amber);">
             <span style="font-size:12px;color:var(--accent-amber);">✎ ${t("admin.officerNotice")}</span>
           </div>`
         : ""
@@ -3274,7 +3436,7 @@ function renderAdmin(el) {
       </div>
       <div style="overflow-x:auto;">
         <table>
-          <thead><tr><th>${t("admin.userName").toUpperCase()}</th><th>${t("admin.gamerId").toUpperCase()}</th><th>${t("admin.alliance").toUpperCase()}</th><th>${t("admin.languageColumn").toUpperCase()}</th><th>${t("admin.resetPin").toUpperCase()}</th><th>${t("admin.rank").toUpperCase()}</th><th></th></tr></thead>
+          <thead><tr><th>${t("admin.userName").toUpperCase()}</th><th>${t("admin.gamerId").toUpperCase()}</th><th>${t("admin.alliance").toUpperCase()}</th><th>${t("admin.languageColumn").toUpperCase()}</th><th>${t("admin.resetPin").toUpperCase()}</th><th>${t("admin.rank").toUpperCase()}</th><th>ACCOUNT STATUS</th><th></th></tr></thead>
           <tbody>
             ${members
               .filter((m) => !adminMemberLangFilter || (m.preferredLanguage || DEFAULT_LANGUAGE_CODE) === adminMemberLangFilter)
@@ -3319,6 +3481,7 @@ function renderAdmin(el) {
                         </select>`
                   }
                 </td>
+                <td>${accountStatusBadgeHtml(m)}</td>
                 <td>
                   <div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:nowrap;">
                     ${canEditMemberBag(user) ? `<button data-medit2="${m.id}" class="btn small" style="white-space:nowrap;">${t("admin.editBag")}</button>` : ""}
@@ -3327,16 +3490,27 @@ function renderAdmin(el) {
                 </td>
               </tr>`
               )
-              .join("") || `<tr><td colspan="7">${t("admin.noMembersYet")}</td></tr>`}
+              .join("") || `<tr><td colspan="8">${t("admin.noMembersYet")}</td></tr>`}
           </tbody>
         </table>
       </div>
-      <div style="display:flex;gap:8px;margin-top:10px;">
-        <input id="admNewMember" placeholder="${t("admin.newMemberName")}" style="flex:1;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:8px 10px;font-size:12px;" />
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <input id="admNewMember" placeholder="Gamer name" style="flex:1 1 160px;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:8px 10px;font-size:12px;" />
+        ${
+          officerScoped
+            ? ""
+            : `<select id="admNewMemberAlliance" style="background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:8px 10px;font-size:12px;">
+                <option value="" ${!alliances.length ? "selected" : ""} disabled>${alliances.length ? "Select alliance" : "No alliances yet"}</option>
+                ${alliances.map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join("")}
+              </select>`
+        }
+        <select id="admNewMemberRole" style="background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:8px 10px;font-size:12px;">
+          ${addMemberRoleOptions.map((r) => `<option value="${r}" ${r === "member" ? "selected" : ""}>${roleLabel(r)}</option>`).join("")}
+        </select>
         <input id="admNewGamerId" placeholder="${t("admin.gamerIdOptional")}" style="width:150px;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:8px 10px;font-size:12px;" />
-        <input id="admNewPin" placeholder="${t("admin.newPinPlaceholder")}" inputmode="numeric" maxlength="4" style="width:110px;letter-spacing:.2em;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:8px 10px;font-size:12px;" />
         <button class="btn small primary" id="admAddMember">${t("admin.addMember")}</button>
       </div>
+      <p style="font-size:11px;color:var(--text-faint);margin:8px 0 0;">No PIN needed yet — they'll be added as <strong style="color:var(--accent-amber);">PENDING SETUP</strong> and can set up their own account (Gamer ID + PIN) the first time they sign in, via "First Time Setup" on the sign-in screen.</p>
     </div>
     `
     }
@@ -3456,6 +3630,8 @@ function renderAdmin(el) {
       </div>
       <p style="font-size:10.5px;color:var(--text-faint);margin:10px 0 0;">Publish or unpublish a day from that day's SVS Battle Prep page.</p>
     </div>
+
+    ${renderEventTypeManagementHtml()}
     `
     }
 
@@ -3515,6 +3691,7 @@ function renderAdmin(el) {
     })
   );
   el.querySelector("#admOpenCalendar")?.addEventListener("click", () => navigate("/calendar"));
+  wireEventTypeManagement(el);
 
   el.querySelector("#admAddAlliance")?.addEventListener("click", () => {
     const tag = el.querySelector("#admNewAlliance").value.trim();
@@ -3688,23 +3865,26 @@ function renderAdmin(el) {
       renderAdmin(el);
     })
   );
-  el.querySelector("#admNewPin")?.addEventListener("input", (e) => {
-    e.target.value = e.target.value.replace(/\D/g, "").slice(0, 4);
-  });
   el.querySelector("#admAddMember")?.addEventListener("click", () => {
     const name = el.querySelector("#admNewMember").value.trim();
     const gamerId = el.querySelector("#admNewGamerId").value.trim();
-    const pin = el.querySelector("#admNewPin").value.trim();
     if (!name) return;
-    if (!/^\d{4}$/.test(pin)) {
-      alert("Enter a 4-digit PIN for this member so they can sign in.");
+
+    const alliance = officerScoped ? user.alliance || "" : (el.querySelector("#admNewMemberAlliance")?.value || "").trim();
+    if (!officerScoped && !alliance) {
+      alert("Select an alliance for this member.");
       return;
     }
-    // Officers only ever see their own alliance here, so a member they add
-    // needs that alliance from the start — otherwise it'd default blank and
-    // immediately vanish from their filtered table.
-    const alliance = officerScoped ? user.alliance || "" : "";
-    Store.members = [...Store.members, { id: "m" + Date.now(), name, gamerId, alliance, role: "member", pin, preferredLanguage: DEFAULT_LANGUAGE_CODE }];
+
+    const requestedRole = (el.querySelector("#admNewMemberRole")?.value || "member").trim();
+    const role = addMemberRoleOptions.includes(requestedRole) ? requestedRole : "member";
+
+    if (gamerId && Store.members.some((m) => m.gamerId && m.gamerId.toLowerCase() === gamerId.toLowerCase())) {
+      alert("That Gamer ID is already in use by another member.");
+      return;
+    }
+
+    Store.members = [...Store.members, { id: "m" + Date.now(), name, gamerId, alliance, role, pin: "", preferredLanguage: DEFAULT_LANGUAGE_CODE }];
     renderAdmin(el);
   });
   el.querySelector("#admMemberLangFilter")?.addEventListener("change", (e) => {
@@ -3897,12 +4077,24 @@ function renderAllianceDashboardTabHtml(user, officerScoped) {
           </div>`
     )}
 
-    ${pillTabsHtml(ALLIANCE_DASH_SUBTABS, allianceDashSubTab, "adsubtab")}
+    ${pillTabsHtml(
+      // FACILITIES is leadership-only (ADMIN/LEADER/R4) — a plain MEMBER
+      // never even sees the tab button, and the route-level guard below
+      // (allianceDashSubTab === "facilities" && !isAdmin(user)) blocks
+      // direct access too, in case a MEMBER had it selected before their
+      // role changed. See spec sections 1/37/44 — this is a client-side-only
+      // guard, same limitation as everywhere else permissions are enforced
+      // in this codebase (no server-side authorization layer exists here).
+      isAdmin(user) ? ALLIANCE_DASH_SUBTABS : ALLIANCE_DASH_SUBTABS.filter((tb) => tb.id !== "facilities"),
+      allianceDashSubTab,
+      "adsubtab"
+    )}
 
     ${allianceDashSubTab !== "overview" ? "" : renderAllianceDashOverviewHtml(user, viewingAlliance, members, bagSubs, svsSignups)}
     ${allianceDashSubTab !== "calendar" ? "" : renderAllianceCalendarHtml(viewingAlliance, isAdmin(user))}
     ${allianceDashSubTab !== "notifications" ? "" : renderAllianceNotificationsPanelHtml(user, viewingAlliance, isAdmin(user))}
     ${allianceDashSubTab !== "event-times" ? "" : renderAllianceDashEventTimesHtml(viewingAlliance, isAdmin(user))}
+    ${allianceDashSubTab !== "facilities" || !isAdmin(user) ? "" : renderFacilitiesHtml(viewingAlliance, members, isAdmin(user))}
     ${allianceDashSubTab !== "participation" ? "" : renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, svsSignups, isAdmin(user))}
     ${allianceDashSubTab !== "performance" ? "" : renderAllianceDashPerformanceHtml(viewingAlliance, members, bagSubs, isAdmin(user))}
     ${allianceDashSubTab !== "discipline" ? "" : renderAllianceDashDisciplineHtml(viewingAlliance, isAdmin(user))}
@@ -4092,9 +4284,18 @@ function renderMobilizationOverviewCardHtml(viewingAlliance, members) {
   `;
 }
 
-function renderBearTrapOverviewCardHtml(viewingAlliance, members) {
+// `canManage` here is the same isAdmin(user) check used everywhere else on
+// this dashboard (despite the name, true for ADMIN/LEADER/R4 — see the
+// ROLE SYSTEM comment near isAdmin's definition — and false for MEMBER), so
+// this card gets the same live-editable dropdown as the full "View All"
+// list (renderBearTrapBodyHtml) for exactly the roles allowed to manage
+// Bear Trap assignments, while MEMBER still only ever sees the plain label.
+// The <select> uses the same data-trackdd="beartrap|<id>|assignment"
+// attribute the rest of this file's tracking inputs use, so it's already
+// picked up for free by wireAllianceTrackingInputs — no extra wiring here.
+function renderBearTrapOverviewCardHtml(viewingAlliance, members, canManage) {
   const cat = allianceTrackingCategory(viewingAlliance, "beartrap");
-  const optionLabel = { NONE: "Neither", BT1: "Bear Trap 1", BT2: "Bear Trap 2", BOTH: "Both" };
+  const optionLabel = { NONE: "Neither", BT1: "Bear Trap 1", BT2: "Bear Trap 2" };
   const rows = members.slice(0, 6);
   return `
     <div class="panel" style="${accentPanelStyle("var(--accent-amber)")}">
@@ -4109,7 +4310,13 @@ function renderBearTrapOverviewCardHtml(viewingAlliance, members) {
                     .map((m) => {
                       const raw = cat[m.id]?.assignment;
                       const v = BEAR_TRAP_ASSIGNMENTS.includes(raw) ? raw : "NONE";
-                      return `<tr><td>${escapeHtml(m.name)}</td><td>${optionLabel[v]}</td></tr>`;
+                      return `<tr><td>${escapeHtml(m.name)}</td><td>${
+                        canManage
+                          ? `<select data-trackdd="beartrap|${m.id}|assignment" style="${trackInputStyle}">
+                              ${BEAR_TRAP_ASSIGNMENTS.map((a) => `<option value="${a}" ${a === v ? "selected" : ""}>${optionLabel[a]}</option>`).join("")}
+                            </select>`
+                          : optionLabel[v]
+                      }</td></tr>`;
                     })
                     .join("")
                 : `<tr><td colspan="2">No members yet.</td></tr>`
@@ -4199,7 +4406,7 @@ function renderAllianceDashOverviewHtml(user, viewingAlliance, members, bagSubs,
       ${renderParticipationOverviewCardHtml(viewingAlliance, members)}
       ${renderRuleViolationsOverviewCardHtml(viewingAlliance)}
       ${renderMobilizationOverviewCardHtml(viewingAlliance, members)}
-      ${renderBearTrapOverviewCardHtml(viewingAlliance, members)}
+      ${renderBearTrapOverviewCardHtml(viewingAlliance, members, canManage)}
       ${renderRemindersOverviewCardHtml(viewingAlliance, canManage)}
     </div>
 
@@ -4502,6 +4709,25 @@ function wireAllianceCalendarSection(el, allianceId, canManage, rerender) {
   );
 }
 
+// Builds the <option> list for every "EVENT TYPE" <select> site-wide, from
+// the shared, Admin-managed Store.eventTypes list (see EVENT TYPE
+// MANAGEMENT above) — ACTIVE types only, in their configured order, so a
+// deactivated type stops being offered for NEW events. If the event being
+// edited already has a type that's since gone inactive (or been deleted),
+// that type is still included — pinned to the top and marked "(inactive)"
+// — so opening Edit on an old event never silently swaps its type out from
+// under it (see "don't break existing events" in the Event Type spec).
+function eventTypeDropdownOptionsHtml(selectedTypeId) {
+  const active = activeEventTypes();
+  const selectedIsActive = active.some((et) => et.id === selectedTypeId);
+  const current = !selectedIsActive && selectedTypeId ? Store.eventTypes.find((et) => et.id === selectedTypeId) : null;
+  const options = current ? [{ ...current, label: `${current.label} (inactive)` }, ...active] : active;
+  return options.map((et) => `<option value="${et.id}" ${et.id === selectedTypeId ? "selected" : ""}>${escapeHtml(et.label)}</option>`).join("");
+}
+function firstActiveEventTypeId() {
+  return activeEventTypes()[0]?.id || Store.eventTypes[0]?.id || "custom";
+}
+
 // Add/Edit modal for one alliance's own calendar — same field set as the
 // Game Calendar's openEventModal, minus EVENT SCOPE (an Alliance Calendar
 // event's scope is implicitly ALLIANCE, tied to allianceId, per spec — no
@@ -4510,7 +4736,7 @@ function openAllianceEventModal(allianceId, existingRaw, presetDate, rerender) {
   const existing = existingRaw ? normalizeEvent(existingRaw) : null;
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
-  const typeId = existing?.eventType || EVENT_TYPES[0].id;
+  const typeId = existing?.eventType || firstActiveEventTypeId();
   let selectedColor = existing?.color || eventTypeInfo(typeId).defaultColor || DEFAULT_EVENT_COLOR;
 
   overlay.innerHTML = `
@@ -4524,7 +4750,7 @@ function openAllianceEventModal(allianceId, existingRaw, presetDate, rerender) {
       <div class="field">
         <label>EVENT TYPE</label>
         <select id="aevType">
-          ${EVENT_TYPES.map((et) => `<option value="${et.id}" ${et.id === typeId ? "selected" : ""}>${et.label}</option>`).join("")}
+          ${eventTypeDropdownOptionsHtml(typeId)}
         </select>
       </div>
       <div class="field-row">
@@ -4916,6 +5142,7 @@ function wireAllianceDashboardTab(el, user, officerScoped) {
   // Times/Discipline above.
   const allianceDashMembers = Store.members.filter((m) => m.alliance === viewingAlliance);
   wireR4JobsSection(el, user, viewingAlliance, allianceDashMembers, isAdmin(user));
+  if (allianceDashSubTab === "facilities" && isAdmin(user)) wireFacilitiesSection(el, user, viewingAlliance, allianceDashMembers, isAdmin(user));
   wireAllianceTrackingInputs(el, user, viewingAlliance, isAdmin(user));
   el.querySelectorAll("[data-parttrackertab]").forEach((btn) =>
     btn.addEventListener("click", () => {
@@ -4923,6 +5150,10 @@ function wireAllianceDashboardTab(el, user, officerScoped) {
       router();
     })
   );
+  el.querySelector("#beartrapFilter")?.addEventListener("change", (e) => {
+    bearTrapViewFilter = e.target.value;
+    router();
+  });
 
   // Overview hub — "jump to tab" shortcut buttons scattered across the new
   // Overview cards (Quick Actions, and each card's own "View All ›" style
@@ -5281,6 +5512,452 @@ function wireR4JobsSection(el, user, viewingAlliance, members, canManage) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Alliance Dashboard — Facilities. ADDITIVE, leadership-only (ADMIN/LEADER/R4)
+// tab — see FACILITY_DEFINITIONS/SEED_ALLIANCE_FACILITIES in data.js for the
+// fixed game reference data and the per-alliance record store. Reuses the
+// existing alliance selector (allianceDashboardViewingAlliance) rather than
+// building a new one, and the existing pill-tab bar/panel styling — nothing
+// about the rest of the Alliance Dashboard is touched.
+//
+// IMPORTANT LIMITATION (flagged consistently with every other "must be
+// enforced server-side" requirement in this app): this codebase has no real
+// backend/server-side authorization layer anywhere — Supabase RLS is
+// wide-open and there is no server-side validation of any kind. The
+// ADMIN/LEADER-R4/MEMBER permission model and the Type/Level/Coordinate
+// validation below are enforced client-side only, the same as every other
+// permission check in this app.
+// ---------------------------------------------------------------------------
+const FACILITY_TYPE_ACCENT = {
+  CONSTRUCTION: "var(--accent-amber)",
+  TECH: "var(--console-icecyan)",
+  DEFENSE: "var(--accent-green)",
+  WEAPON: "var(--accent-red)",
+  GATHERING: "var(--accent-gold)",
+  PRODUCTION: "var(--accent-purple)",
+  TRAINING: "var(--console-icy-blue)",
+  EXPEDITION: "var(--console-magenta)",
+};
+const FACILITY_STATUS_BADGE_STYLE = {
+  TARGET: "background:color-mix(in srgb, var(--console-icecyan) 18%, transparent);color:var(--console-icecyan);border:1px solid var(--console-icecyan);",
+  CONTESTED: "background:color-mix(in srgb, var(--accent-gold) 18%, transparent);color:var(--accent-gold);border:1px solid var(--accent-gold);",
+  OWNED: "background:color-mix(in srgb, var(--accent-green) 18%, transparent);color:var(--accent-green);border:1px solid var(--accent-green);",
+  LOST: "background:color-mix(in srgb, var(--accent-red) 18%, transparent);color:var(--accent-red);border:1px solid var(--accent-red);",
+};
+function facilityStatusBadgeHtml(status, extraLabel) {
+  const style = FACILITY_STATUS_BADGE_STYLE[status] || FACILITY_STATUS_BADGE_STYLE.TARGET;
+  return `<span style="display:inline-block;font-size:9.5px;padding:2px 7px;border-radius:3px;letter-spacing:.05em;font-weight:700;${style}">${escapeHtml(extraLabel || FACILITY_STATUS_LABELS[status] || status)}</span>`;
+}
+function facilityCoordinateLabel(r) {
+  return `${r.coordinateX}:${r.coordinateY}`;
+}
+
+let facilityFilterType = "ALL";
+let facilityFilterStatus = "ALL";
+let facilitySortBy = "TYPE";
+const FACILITY_SORT_OPTIONS = [
+  { id: "TYPE", label: "Type" },
+  { id: "STATUS", label: "Status" },
+  { id: "PRIORITY", label: "Priority" },
+  { id: "COORDINATE", label: "Coordinate" },
+  { id: "PROTECTION", label: "Protection Ends" },
+];
+const FACILITY_PRIORITY_RANK = { HIGH: 0, NORMAL: 1, LOW: 2 };
+
+function facilitySortedFilteredRecords(records) {
+  let rows = records.slice();
+  if (facilityFilterType !== "ALL") rows = rows.filter((r) => r.type === facilityFilterType);
+  if (facilityFilterStatus !== "ALL") rows = rows.filter((r) => r.status === facilityFilterStatus);
+  rows.sort((a, b) => {
+    switch (facilitySortBy) {
+      case "STATUS":
+        return FACILITY_STATUSES.indexOf(a.status) - FACILITY_STATUSES.indexOf(b.status);
+      case "PRIORITY":
+        return (FACILITY_PRIORITY_RANK[a.priority] ?? 1) - (FACILITY_PRIORITY_RANK[b.priority] ?? 1);
+      case "COORDINATE":
+        return facilityCoordinateLabel(a).localeCompare(facilityCoordinateLabel(b), undefined, { numeric: true });
+      case "PROTECTION":
+        return (a.protectionEndsAt || Infinity) - (b.protectionEndsAt || Infinity);
+      case "TYPE":
+      default:
+        return FACILITY_ORDER.indexOf(a.type) - FACILITY_ORDER.indexOf(b.type) || a.level - b.level;
+    }
+  });
+  return rows;
+}
+
+function renderFacilityBuffSummaryHtml(records) {
+  const summary = computeFacilityBuffSummary(records);
+  const types = Object.keys(summary);
+  return `
+    <div class="panel" style="${accentPanelStyle("var(--console-magenta)")}">
+      ${accentPanelHeaderHtml("var(--console-magenta)", "⚡", "Active Facility Buff Summary")}
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">Auto-calculated from every facility currently marked OWNED — same type + different level stacks; same type + same level counts once.</p>
+      ${
+        types.length
+          ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:10px;">
+              ${types
+                .map((type) => {
+                  const s = summary[type];
+                  const accent = FACILITY_TYPE_ACCENT[type];
+                  return `
+                <div style="background:var(--panel-2);border:1px solid ${accent};border-radius:6px;padding:10px 12px;">
+                  <div style="font-size:10px;letter-spacing:.1em;color:${accent};font-weight:700;">${FACILITY_DEFINITIONS[type].label.toUpperCase()}</div>
+                  <div style="font-size:20px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums;margin:2px 0;">+${s.totalAmount}%</div>
+                  <div style="font-size:10.5px;color:var(--text-faint);">${escapeHtml(s.buffName)} · Lv ${s.levels.map((l) => l.level).join("+")}</div>
+                </div>`;
+                })
+                .join("")}
+            </div>`
+          : emptyStateHtml("bolt", "No active buffs yet.", "Mark a facility OWNED to see its buff here.", "var(--console-magenta)")
+      }
+    </div>
+  `;
+}
+
+function renderFacilitiesHtml(viewingAlliance, allianceMembers, canManage) {
+  const allRecords = allianceFacilityRecords(viewingAlliance);
+  const owned = allRecords.filter((r) => r.status === "OWNED");
+  const counts = {
+    owned: owned.length,
+    targets: allRecords.filter((r) => r.status === "TARGET").length,
+    contested: allRecords.filter((r) => r.status === "CONTESTED").length,
+    protected: owned.filter((r) => facilityIsProtected(r)).length,
+  };
+  const rows = facilitySortedFilteredRecords(allRecords);
+  return `
+    ${renderFacilityBuffSummaryHtml(allRecords)}
+
+    <div class="panel" style="${accentPanelStyle("var(--console-icecyan)")}">
+      ${accentPanelHeaderHtml("var(--console-icecyan)", "🏰", `Facility Ownership Tracker (${allRecords.length})`, canManage ? `<button class="btn small primary" id="facilityAdd">+ Add Facility</button>` : "")}
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin:12px 0;">
+        <div style="background:var(--panel-2);border:1px solid var(--accent-green);border-radius:6px;padding:8px 10px;text-align:center;">
+          <div style="font-size:18px;font-weight:800;color:var(--accent-green);">${counts.owned}</div>
+          <div style="font-size:9.5px;letter-spacing:.08em;color:var(--text-faint);">OWNED</div>
+        </div>
+        <div style="background:var(--panel-2);border:1px solid var(--console-icecyan);border-radius:6px;padding:8px 10px;text-align:center;">
+          <div style="font-size:18px;font-weight:800;color:var(--console-icecyan);">${counts.targets}</div>
+          <div style="font-size:9.5px;letter-spacing:.08em;color:var(--text-faint);">TARGETS</div>
+        </div>
+        <div style="background:var(--panel-2);border:1px solid var(--accent-gold);border-radius:6px;padding:8px 10px;text-align:center;">
+          <div style="font-size:18px;font-weight:800;color:var(--accent-gold);">${counts.contested}</div>
+          <div style="font-size:9.5px;letter-spacing:.08em;color:var(--text-faint);">CONTESTED</div>
+        </div>
+        <div style="background:var(--panel-2);border:1px solid var(--accent-purple);border-radius:6px;padding:8px 10px;text-align:center;">
+          <div style="font-size:18px;font-weight:800;color:var(--accent-purple);">${counts.protected}</div>
+          <div style="font-size:9.5px;letter-spacing:.08em;color:var(--text-faint);">PROTECTED</div>
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-bottom:10px;">
+        <div class="field" style="max-width:180px;">
+          <label>TYPE</label>
+          <select id="facilityFilterType">
+            <option value="ALL" ${facilityFilterType === "ALL" ? "selected" : ""}>All Types</option>
+            ${FACILITY_ORDER.map((t) => `<option value="${t}" ${facilityFilterType === t ? "selected" : ""}>${FACILITY_DEFINITIONS[t].label}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field" style="max-width:160px;">
+          <label>STATUS</label>
+          <select id="facilityFilterStatus">
+            <option value="ALL" ${facilityFilterStatus === "ALL" ? "selected" : ""}>All Statuses</option>
+            ${FACILITY_STATUSES.map((s) => `<option value="${s}" ${facilityFilterStatus === s ? "selected" : ""}>${FACILITY_STATUS_LABELS[s]}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field" style="max-width:170px;">
+          <label>SORT BY</label>
+          <select id="facilitySortBy">
+            ${FACILITY_SORT_OPTIONS.map((o) => `<option value="${o.id}" ${facilitySortBy === o.id ? "selected" : ""}>${o.label}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+
+      ${
+        rows.length
+          ? `<div style="overflow-x:auto;">
+              <table>
+                <thead><tr><th>TYPE</th><th>LV</th><th>COORD</th><th>BUFF</th><th>STATUS</th><th>PRIORITY</th><th>PROTECTION ENDS (UTC)</th><th>ASSIGNED TO</th><th>NOTES</th>${canManage ? "<th></th>" : ""}</tr></thead>
+                <tbody>
+                  ${rows
+                    .map((r) => {
+                      const buff = facilityBuffInfo(r.type, r.level);
+                      const accent = FACILITY_TYPE_ACCENT[r.type];
+                      const protectedNow = facilityIsProtected(r);
+                      return `<tr>
+                        <td><span style="color:${accent};font-weight:700;">${FACILITY_DEFINITIONS[r.type].label}</span></td>
+                        <td style="font-variant-numeric:tabular-nums;">${r.level}</td>
+                        <td style="font-variant-numeric:tabular-nums;">${facilityCoordinateLabel(r)}</td>
+                        <td style="font-size:11.5px;">${buff ? `${escapeHtml(buff.buffName)} +${buff.buffAmount}%${buff.permanentLosses ? ` <span style="color:var(--accent-red);">⚠</span>` : ""}` : "—"}</td>
+                        <td>${facilityStatusBadgeHtml(r.status)}${protectedNow ? ` <span style="font-size:9px;color:var(--accent-purple);">🛡</span>` : ""}</td>
+                        <td style="text-transform:capitalize;">${(r.priority || "NORMAL").toLowerCase()}</td>
+                        <td style="font-size:11px;color:var(--text-dim);font-variant-numeric:tabular-nums;">${r.protectionEndsAt ? fmtUtcDateTime(r.protectionEndsAt) : "—"}</td>
+                        <td>${escapeHtml(r.assignedToName || "—")}</td>
+                        <td style="max-width:160px;font-size:11px;color:var(--text-dim);">${escapeHtml(r.notes || "—")}</td>
+                        ${
+                          canManage
+                            ? `<td style="white-space:nowrap;"><button data-facedit="${r.id}" class="btn small">Edit</button> <button data-facdel="${r.id}" class="btn small" style="color:var(--accent-red);">✕</button></td>`
+                            : ""
+                        }
+                      </tr>`;
+                    })
+                    .join("")}
+                </tbody>
+              </table>
+            </div>`
+          : emptyStateHtml("pin", "No facilities tracked yet.", canManage ? "Add one to start tracking your alliance's facilities." : "Check back once leadership adds one.", "var(--console-icecyan)")
+      }
+    </div>
+  `;
+}
+
+// Type→Level→Coordinate cascading Add/Edit modal — mirrors the openR4JobModal
+// pattern above. Buff/Buff Amount are ALWAYS derived (read-only, via
+// facilityBuffInfo) from whatever Type+Level is currently selected — never a
+// free-typed field — and the Coordinate <select> is repopulated from
+// facilityCoordinates(type, level) every time Type or Level changes, so an
+// invalid Type/Level/Coordinate combination can never be submitted.
+function openFacilityModal(viewingAlliance, members, existing, rerender) {
+  document.getElementById("facilityModalOverlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.id = "facilityModalOverlay";
+  overlay.className = "modal-overlay";
+
+  const initialType = existing?.type || FACILITY_ORDER[0];
+  const initialLevel = existing?.level || facilityTypeLevels(initialType)[0];
+  const initialCoord = existing ? facilityCoordinateLabel(existing) : "";
+
+  const levelOptionsHtml = (type, selectedLevel) =>
+    facilityTypeLevels(type)
+      .map((lvl) => `<option value="${lvl}" ${lvl === selectedLevel ? "selected" : ""}>Level ${lvl}</option>`)
+      .join("");
+  const coordOptionsHtml = (type, level, selectedCoord) => {
+    const coords = facilityCoordinates(type, level);
+    // If editing a record whose exact coordinate isn't in the list for
+    // whatever type/level is currently selected (only possible right after
+    // switching Type/Level in the form, before the user re-picks one), still
+    // show it so the field never silently shows a wrong selection.
+    const list = selectedCoord && !coords.includes(selectedCoord) ? [selectedCoord, ...coords] : coords;
+    return list.map((c) => `<option value="${c}" ${c === selectedCoord ? "selected" : ""}>${c}</option>`).join("");
+  };
+
+  overlay.innerHTML = `
+    <div class="modal">
+      <button class="close">&times;</button>
+      <h3>${existing ? "Edit Facility" : "Add Facility"}</h3>
+      <div class="field-row">
+        <div class="field">
+          <label>TYPE</label>
+          <select id="facmType">${FACILITY_ORDER.map((t) => `<option value="${t}" ${t === initialType ? "selected" : ""}>${FACILITY_DEFINITIONS[t].label}</option>`).join("")}</select>
+        </div>
+        <div class="field">
+          <label>LEVEL</label>
+          <select id="facmLevel">${levelOptionsHtml(initialType, initialLevel)}</select>
+        </div>
+      </div>
+      <div class="field">
+        <label>COORDINATE</label>
+        <select id="facmCoord">${coordOptionsHtml(initialType, initialLevel, initialCoord)}</select>
+      </div>
+      <div class="field" id="facmBuffField">
+        <label>BUFF (AUTO)</label>
+        <div id="facmBuffText" style="font-size:12.5px;color:var(--text-dim);padding:8px 0;"></div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>STATUS</label>
+          <select id="facmStatus">${FACILITY_STATUSES.map((s) => `<option value="${s}" ${(existing?.status || "TARGET") === s ? "selected" : ""}>${FACILITY_STATUS_LABELS[s]}</option>`).join("")}</select>
+        </div>
+        <div class="field">
+          <label>PRIORITY</label>
+          <select id="facmPriority">${FACILITY_PRIORITIES.map((p) => `<option value="${p}" ${(existing?.priority || "NORMAL") === p ? "selected" : ""}>${p.charAt(0) + p.slice(1).toLowerCase()}</option>`).join("")}</select>
+        </div>
+      </div>
+      <div id="facmCapNotice" style="font-size:11px;color:var(--text-faint);margin:-4px 0 4px;"></div>
+      <div class="field">
+        <label>ASSIGNED TO</label>
+        <select id="facmAssigned">
+          <option value="">Unassigned</option>
+          ${members.map((m) => `<option value="${m.id}" ${existing?.assignedTo === m.id ? "selected" : ""}>${escapeHtml(m.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>PROTECTION ENDS (UTC, OPTIONAL)</label>
+          <input id="facmProtection" type="datetime-local" value="${existing?.protectionEndsAt ? utcMsToDatetimeLocal(existing.protectionEndsAt) : ""}" />
+        </div>
+        <div class="field" style="flex:none;align-self:flex-end;">
+          <button type="button" class="btn small" id="facmAutoProtect">Capture now (+72h)</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>NOTES (OPTIONAL)</label>
+        <textarea id="facmNotes" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:9px 10px;font-size:13px;min-height:50px;resize:vertical;">${existing?.notes ? escapeHtml(existing.notes) : ""}</textarea>
+      </div>
+      <div id="facmErr" style="color:var(--accent-red);font-size:11.5px;margin:-2px 0 6px;min-height:16px;"></div>
+      <button class="btn primary" id="facmSave" style="width:100%;">${existing ? "SAVE CHANGES" : "ADD FACILITY"}</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".close").onclick = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  const typeEl = overlay.querySelector("#facmType");
+  const levelEl = overlay.querySelector("#facmLevel");
+  const coordEl = overlay.querySelector("#facmCoord");
+  const statusEl = overlay.querySelector("#facmStatus");
+  const buffTextEl = overlay.querySelector("#facmBuffText");
+  const capNoticeEl = overlay.querySelector("#facmCapNotice");
+  const saveBtn = overlay.querySelector("#facmSave");
+
+  const refreshBuffText = () => {
+    const buff = facilityBuffInfo(typeEl.value, Number(levelEl.value));
+    buffTextEl.textContent = buff ? `${buff.buffName} +${buff.buffAmount}%${buff.permanentLosses ? " — WARNING: causes permanent troop losses on capture" : ""}` : "—";
+    buffTextEl.style.color = buff?.permanentLosses ? "var(--accent-red)" : "var(--text-dim)";
+  };
+  // Ownership-cap awareness (see FACILITY_MAX_ACTIVE in data.js): only
+  // applies when STATUS is set to OWNED — a TARGET/CONTESTED record of the
+  // same type is still trackable beyond the cap, it just can't be marked
+  // OWNED past it. When Status is OWNED, the Level dropdown is filtered down
+  // to levels that aren't already an OWNED slot for this type (the record's
+  // OWN current type+level, if any, is always kept available so re-saving
+  // it in place never locks you out of your own record). If NO level is
+  // available, Save is disabled and a "Maximum X facilities reached" notice
+  // is shown, per spec's UI BEHAVIOR section.
+  const refreshLevels = (keepLevel) => {
+    const type = typeEl.value;
+    const allLevels = facilityTypeLevels(type);
+    const wantOwned = statusEl.value === "OWNED";
+    const activeLevels = allianceActiveFacilityLevels(viewingAlliance, type, existing?.id);
+    const availableLevels = wantOwned ? allLevels.filter((lvl) => !activeLevels.includes(lvl)) : allLevels;
+    const level = availableLevels.includes(keepLevel) ? keepLevel : availableLevels[0] ?? allLevels[0];
+    levelEl.innerHTML = (availableLevels.length ? availableLevels : allLevels)
+      .map((lvl) => `<option value="${lvl}" ${lvl === level ? "selected" : ""}>Level ${lvl}</option>`)
+      .join("");
+    const maxed = wantOwned && !availableLevels.length;
+    levelEl.disabled = maxed;
+    if (maxed) {
+      capNoticeEl.textContent = `Maximum ${FACILITY_DEFINITIONS[type].label} facilities reached (${facilityMaxActiveForType(type)}/${facilityMaxActiveForType(type)} active) — free one up before marking another OWNED.`;
+      capNoticeEl.style.color = "var(--accent-red)";
+    } else if (wantOwned && activeLevels.length) {
+      capNoticeEl.textContent = `${FACILITY_DEFINITIONS[type].label}: ${activeLevels.length}/${facilityMaxActiveForType(type)} already active (Level ${activeLevels.join(", ")}).`;
+      capNoticeEl.style.color = "var(--text-faint)";
+    } else {
+      capNoticeEl.textContent = "";
+    }
+    saveBtn.disabled = maxed;
+    saveBtn.style.opacity = maxed ? "0.5" : "";
+    saveBtn.style.cursor = maxed ? "not-allowed" : "";
+  };
+  const refreshCoords = (keepCoord) => {
+    const coords = facilityCoordinates(typeEl.value, Number(levelEl.value));
+    const coord = coords.includes(keepCoord) ? keepCoord : coords[0];
+    coordEl.innerHTML = coordOptionsHtml(typeEl.value, Number(levelEl.value), coord);
+  };
+  refreshBuffText();
+  refreshLevels(initialLevel);
+
+  typeEl.addEventListener("change", () => { refreshLevels(); refreshCoords(); refreshBuffText(); });
+  levelEl.addEventListener("change", () => { refreshCoords(); refreshBuffText(); });
+  statusEl.addEventListener("change", () => { refreshLevels(Number(levelEl.value)); refreshCoords(coordEl.value); refreshBuffText(); });
+
+  overlay.querySelector("#facmAutoProtect").addEventListener("click", () => {
+    const input = overlay.querySelector("#facmProtection");
+    input.value = utcMsToDatetimeLocal(Date.now() + FACILITY_PROTECTION_MS);
+  });
+
+  overlay.querySelector("#facmSave").addEventListener("click", () => {
+    const errEl = overlay.querySelector("#facmErr");
+    const type = typeEl.value;
+    const level = Number(levelEl.value);
+    const coord = coordEl.value;
+    if (!FACILITY_ORDER.includes(type) || !isValidFacilityCombo(type, level, coord)) {
+      errEl.textContent = "Invalid Type / Level / Coordinate combination.";
+      return;
+    }
+    const [coordinateX, coordinateY] = coord.split(":").map(Number);
+    const status = FACILITY_STATUSES.includes(overlay.querySelector("#facmStatus").value) ? overlay.querySelector("#facmStatus").value : "TARGET";
+    // Ownership limit — enforced again here (not just via the disabled Level
+    // dropdown above) so it can never be bypassed, e.g. by a stale DOM state.
+    if (status === "OWNED" && !canAddActiveFacility(viewingAlliance, type, level, existing?.id)) {
+      errEl.textContent = `Maximum ${FACILITY_DEFINITIONS[type].label} facilities reached (max ${facilityMaxActiveForType(type)} active, levels must differ).`;
+      return;
+    }
+    if (facilityCoordinateInUse(viewingAlliance, coordinateX, coordinateY, existing?.id)) {
+      errEl.textContent = "Another active facility record already tracks this coordinate for this alliance.";
+      return;
+    }
+    const assignedTo = overlay.querySelector("#facmAssigned").value || null;
+    const assignedMember = members.find((m) => m.id === assignedTo);
+    const protectionInput = overlay.querySelector("#facmProtection").value;
+    const record = {
+      id: existing?.id || "fac" + Date.now(),
+      type,
+      level,
+      coordinateX,
+      coordinateY,
+      status,
+      priority: FACILITY_PRIORITIES.includes(overlay.querySelector("#facmPriority").value) ? overlay.querySelector("#facmPriority").value : "NORMAL",
+      assignedTo,
+      assignedToName: assignedMember ? assignedMember.name : "",
+      capturedAt: status === "OWNED" ? existing?.capturedAt || Date.now() : existing?.capturedAt || null,
+      protectionEndsAt: protectionInput ? datetimeLocalToUtcMs(protectionInput) : null,
+      notes: overlay.querySelector("#facmNotes").value.trim(),
+      createdAt: existing?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+    };
+    upsertAllianceFacility(viewingAlliance, record);
+    overlay.remove();
+    rerender();
+  });
+}
+
+// datetime-local <input> works in the browser's LOCAL time zone, but every
+// other time field in this app is UTC (see fmtUtcDate/fmtUtcDateTime) — these
+// two helpers convert between that local-time input and a UTC epoch-ms
+// value so Protection Ends always stores/displays true UTC, never whatever
+// zone the browser happens to be in.
+function utcMsToDatetimeLocal(ms) {
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+function datetimeLocalToUtcMs(value) {
+  if (!value) return null;
+  const [datePart, timePart] = value.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [hh, mm] = (timePart || "00:00").split(":").map(Number);
+  return Date.UTC(y, m - 1, d, hh, mm);
+}
+// fmtUtcDateTime() already exists in data.js (24-hour UTC "YYYY-MM-DD HH:MM
+// UTC" formatter, used app-wide) — reused here rather than redefined.
+
+function wireFacilitiesSection(el, user, viewingAlliance, allianceMembers, canManage) {
+  el.querySelector("#facilityAdd")?.addEventListener("click", () => {
+    if (!canManage || !viewingAlliance) return;
+    openFacilityModal(viewingAlliance, allianceMembers, null, () => router());
+  });
+  el.querySelectorAll("[data-facedit]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (!canManage || !viewingAlliance) return;
+      const rec = allianceFacilityRecords(viewingAlliance).find((r) => r.id === btn.dataset.facedit);
+      if (!rec) return;
+      openFacilityModal(viewingAlliance, allianceMembers, rec, () => router());
+    })
+  );
+  el.querySelectorAll("[data-facdel]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (!canManage || !viewingAlliance) return;
+      if (!confirm("Delete this facility record? The buff summary will recalculate immediately.")) return;
+      deleteAllianceFacility(viewingAlliance, btn.dataset.facdel);
+      router();
+    })
+  );
+  el.querySelector("#facilityFilterType")?.addEventListener("change", (e) => { facilityFilterType = e.target.value; router(); });
+  el.querySelector("#facilityFilterStatus")?.addEventListener("change", (e) => { facilityFilterStatus = e.target.value; router(); });
+  el.querySelector("#facilitySortBy")?.addEventListener("change", (e) => { facilitySortBy = e.target.value; router(); });
+}
+
 const trackInputStyle = "background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:3px;padding:5px 8px;font-size:12px;";
 
 function renderRankingListSectionHtml(viewingAlliance, members, canManage) {
@@ -5417,20 +6094,41 @@ function renderCheckboxTrackerBodyHtml(viewingAlliance, members, canManage, cate
   `;
 }
 
+// Optional filter for the full Bear Trap Assignments list ("View All") —
+// purely a display filter, never touches storage. ALL is the default so
+// this never hides anyone unless someone deliberately narrows it.
+let bearTrapViewFilter = "ALL";
+const BEAR_TRAP_FILTER_OPTIONS = [
+  { value: "ALL", label: "All" },
+  { value: "BT1", label: "Bear Trap 1" },
+  { value: "BT2", label: "Bear Trap 2" },
+  { value: "NONE", label: "Neither" },
+];
+
 function renderBearTrapBodyHtml(viewingAlliance, members, canManage) {
   const cat = allianceTrackingCategory(viewingAlliance, "beartrap");
-  const optionLabel = { NONE: "Neither", BT1: "Bear Trap 1", BT2: "Bear Trap 2", BOTH: "Both" };
+  const optionLabel = { NONE: "Neither", BT1: "Bear Trap 1", BT2: "Bear Trap 2" };
+  const rowsAll = members.map((m) => {
+    const rec = cat[m.id] || {};
+    const value = BEAR_TRAP_ASSIGNMENTS.includes(rec.assignment) ? rec.assignment : "NONE";
+    return { m, value };
+  });
+  const rows = bearTrapViewFilter === "ALL" ? rowsAll : rowsAll.filter((r) => r.value === bearTrapViewFilter);
   return `
+    <div class="field" style="max-width:220px;margin-bottom:10px;">
+      <label>FILTER</label>
+      <select id="beartrapFilter">
+        ${BEAR_TRAP_FILTER_OPTIONS.map((o) => `<option value="${o.value}" ${o.value === bearTrapViewFilter ? "selected" : ""}>${o.label}</option>`).join("")}
+      </select>
+    </div>
     <div style="overflow-x:auto;">
       <table>
         <thead><tr><th>PLAYER</th><th>BEAR TRAP ASSIGNMENT</th></tr></thead>
         <tbody>
           ${
-            members
-              .map((m) => {
-                const rec = cat[m.id] || {};
-                const value = BEAR_TRAP_ASSIGNMENTS.includes(rec.assignment) ? rec.assignment : "NONE";
-                return `
+            rows
+              .map(
+                ({ m, value }) => `
           <tr>
             <td>${escapeHtml(m.name)}</td>
             <td>
@@ -5442,9 +6140,9 @@ function renderBearTrapBodyHtml(viewingAlliance, members, canManage) {
                   : optionLabel[value]
               }
             </td>
-          </tr>`;
-              })
-              .join("") || `<tr><td colspan="2">No members yet.</td></tr>`
+          </tr>`
+              )
+              .join("") || `<tr><td colspan="2">${members.length ? "No members match this filter." : "No members yet."}</td></tr>`
           }
         </tbody>
       </table>
@@ -6353,7 +7051,7 @@ function renderBearCalculator(el) {
 
 // ---------------------------------------------------------------------------
 // Game Calendar — admin/officer-managed schedule of recurring Whiteout
-// Survival systems (see EVENT_TYPES/EVENT_SCOPES/EVENT_COLOR_PRESETS +
+// Survival systems (see SEED_EVENT_TYPES/EVENT_SCOPES/EVENT_COLOR_PRESETS +
 // SEED_GAME_EVENTS in data.js). Regular members get a read-only month view
 // + upcoming list; isAdmin(user) also gets Add/Edit/Delete. Editing a
 // recurring event edits the whole series (there's no per-occurrence
@@ -6368,6 +7066,218 @@ function renderBearCalculator(el) {
 // re-clipped to that row (so it still looks continuous) but stays one
 // event the whole way — no duplicate records are ever created for it.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// EVENT TYPE MANAGEMENT — ADMIN-only reusable master list of Event Types
+// (STATE DASHBOARD → SCHEDULE / EVENTS → EVENT TYPE MANAGEMENT below).
+// This is NOT individual scheduled calendar events — it's the shared
+// dropdown source every Event Type <select> across the site (State/Game
+// Calendar's openEventModal, every alliance's Calendar's
+// openAllianceEventModal) reads from via Store.eventTypes / eventTypeInfo()
+// / activeEventTypes() (data.js). Adding a type here makes it available in
+// every one of those dropdowns immediately — no separate per-calendar list,
+// no code change (see the big comment above SEED_EVENT_TYPES in data.js).
+//
+// `eventTypeEditingId` drives one shared add/edit form: null = no form
+// open, "__new__" = the Add form, or an existing type's id = editing that
+// row in place. Only one instance can be open at a time, same pattern as
+// this file's other single-row-edit admin lists.
+// ---------------------------------------------------------------------------
+let eventTypeEditingId = null;
+let eventTypeFormColor = DEFAULT_EVENT_COLOR;
+
+function renderEventTypeManagementHtml() {
+  const types = Store.eventTypes.slice().sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  return `
+    <div class="panel">
+      <div class="planner-header"><strong>Event Type Management</strong></div>
+      <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">
+        The single shared list of Event Types offered in every Add Event form site-wide (State Calendar and every alliance's Calendar). Add a type here and it appears everywhere automatically — no separate lists to update.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin:12px 0;">
+        ${
+          types.map((et, i) => renderEventTypeRowHtml(et, i, types.length)).join("") ||
+          `<div class="empty">No event types yet.</div>`
+        }
+      </div>
+      ${
+        eventTypeEditingId === "__new__"
+          ? renderEventTypeFormHtml(null)
+          : `<button class="btn small primary" id="evtypeAddBtn">+ ADD EVENT TYPE</button>`
+      }
+    </div>
+  `;
+}
+
+function renderEventTypeRowHtml(et, index, total) {
+  if (eventTypeEditingId === et.id) return renderEventTypeFormHtml(et);
+  const inUse = eventTypeInUse(et.id);
+  return `
+    <div style="display:flex;align-items:center;gap:10px;background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:8px 10px;flex-wrap:wrap;">
+      <span style="width:16px;height:16px;border-radius:4px;flex:none;background:${et.defaultColor};border:1px solid rgba(255,255,255,.25);"></span>
+      <div style="flex:1 1 160px;min-width:0;">
+        <div style="font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          ${escapeHtml(et.label)}
+          <span class="status-badge ${et.isActive === false ? "open" : "done"}">${et.isActive === false ? "INACTIVE" : "ACTIVE"}</span>
+          ${inUse ? `<span style="font-size:10px;color:var(--text-faint);">· in use</span>` : ""}
+        </div>
+        ${et.description ? `<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${escapeHtml(et.description)}</div>` : ""}
+      </div>
+      <div style="display:flex;gap:4px;align-items:center;flex:none;">
+        <button data-evtypeup="${et.id}" class="btn small" ${index === 0 ? "disabled" : ""} title="Move up">↑</button>
+        <button data-evtypedown="${et.id}" class="btn small" ${index === total - 1 ? "disabled" : ""} title="Move down">↓</button>
+        <button data-evtypeedit="${et.id}" class="btn small">Edit</button>
+        <button data-evtypetoggleactive="${et.id}" class="btn small">${et.isActive === false ? "Activate" : "Deactivate"}</button>
+        <button data-evtypedelete="${et.id}" class="btn small" style="${inUse ? "opacity:.4;cursor:not-allowed;" : "color:var(--accent-red);"}" ${inUse ? `disabled title="In use by an existing event — deactivate instead of deleting."` : "title=\"Permanently delete (only allowed while unused)\""}>✕</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderEventTypeFormHtml(existing) {
+  const selectedColor = existing ? eventTypeFormColor || existing.defaultColor : eventTypeFormColor;
+  return `
+    <div style="background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:12px;margin-top:${existing ? "0" : "4px"};">
+      <div class="field-row">
+        <div class="field" style="flex:1;min-width:180px;">
+          <label>EVENT TYPE NAME</label>
+          <input id="evtypeName" placeholder="e.g. Mercenary Prestige" value="${existing ? escapeHtml(existing.label) : ""}" />
+        </div>
+        <div class="field" style="flex:1;min-width:180px;">
+          <label>DESCRIPTION (OPTIONAL)</label>
+          <input id="evtypeDescription" placeholder="—" value="${existing ? escapeHtml(existing.description || "") : ""}" />
+        </div>
+      </div>
+      <div class="field">
+        <label>DEFAULT COLOR</label>
+        <div class="cal-color-row">
+          ${EVENT_COLOR_PRESETS.map(
+            (c) =>
+              `<button type="button" class="cal-color-swatch${c.value.toLowerCase() === selectedColor.toLowerCase() ? " selected" : ""}" data-evtypecolor="${c.value}" style="background:${c.value};" title="${c.name}"></button>`
+          ).join("")}
+          <label class="cal-color-swatch cal-color-custom" title="Custom color" style="background:${selectedColor};">
+            <input type="color" id="evtypeColorCustom" value="${/^#[0-9a-f]{6}$/i.test(selectedColor) ? selectedColor : DEFAULT_EVENT_COLOR}" />
+          </label>
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-dim);margin:10px 0;">
+        <input type="checkbox" id="evtypeActive" ${!existing || existing.isActive !== false ? "checked" : ""} />
+        Active (appears in Add Event dropdowns)
+      </label>
+      <div id="evtypeErr" style="color:var(--accent-red);font-size:11.5px;margin:-2px 0 8px;min-height:16px;"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn small primary" id="evtypeSave" data-evtypeediting="${existing ? existing.id : ""}">${existing ? "SAVE CHANGES" : "SAVE EVENT TYPE"}</button>
+        <button class="btn small" id="evtypeCancel">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+function wireEventTypeManagement(el) {
+  el.querySelector("#evtypeAddBtn")?.addEventListener("click", () => {
+    eventTypeEditingId = "__new__";
+    eventTypeFormColor = DEFAULT_EVENT_COLOR;
+    renderAdmin(el);
+  });
+  el.querySelectorAll("[data-evtypeedit]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const et = Store.eventTypes.find((x) => x.id === btn.dataset.evtypeedit);
+      eventTypeEditingId = btn.dataset.evtypeedit;
+      eventTypeFormColor = et?.defaultColor || DEFAULT_EVENT_COLOR;
+      renderAdmin(el);
+    })
+  );
+  el.querySelector("#evtypeCancel")?.addEventListener("click", () => {
+    eventTypeEditingId = null;
+    renderAdmin(el);
+  });
+  const colorSwatches = el.querySelectorAll(".cal-color-swatch[data-evtypecolor]");
+  const customSwatch = el.querySelector(".cal-color-custom");
+  const customInput = el.querySelector("#evtypeColorCustom");
+  colorSwatches.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      eventTypeFormColor = btn.dataset.evtypecolor;
+      colorSwatches.forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      if (customInput) customInput.value = eventTypeFormColor;
+      if (customSwatch) customSwatch.style.background = eventTypeFormColor;
+    });
+  });
+  customInput?.addEventListener("input", () => {
+    eventTypeFormColor = customInput.value;
+    colorSwatches.forEach((b) => b.classList.remove("selected"));
+    if (customSwatch) customSwatch.style.background = eventTypeFormColor;
+  });
+  el.querySelector("#evtypeSave")?.addEventListener("click", (e) => {
+    const errEl = el.querySelector("#evtypeErr");
+    const name = el.querySelector("#evtypeName").value.trim();
+    if (!name) { errEl.textContent = "Event Type name is required."; return; }
+    const description = el.querySelector("#evtypeDescription").value.trim();
+    const isActive = el.querySelector("#evtypeActive").checked;
+    const editingId = e.target.dataset.evtypeediting;
+    const types = Store.eventTypes;
+    const now = new Date().toISOString();
+    if (editingId) {
+      Store.eventTypes = types.map((t) =>
+        t.id === editingId ? { ...t, label: name, description, defaultColor: eventTypeFormColor, isActive, updatedAt: now } : t
+      );
+    } else {
+      const nextSortOrder = types.length ? Math.max(...types.map((t) => t.sortOrder ?? 0)) + 1 : 0;
+      const id = "evtype" + Date.now();
+      Store.eventTypes = [...types, { id, label: name, description, defaultColor: eventTypeFormColor, isActive, sortOrder: nextSortOrder, createdAt: now, updatedAt: now }];
+    }
+    eventTypeEditingId = null;
+    renderAdmin(el);
+  });
+  el.querySelectorAll("[data-evtypetoggleactive]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.evtypetoggleactive;
+      const types = Store.eventTypes;
+      Store.eventTypes = types.map((t) => (t.id === id ? { ...t, isActive: t.isActive === false, updatedAt: new Date().toISOString() } : t));
+      renderAdmin(el);
+    })
+  );
+  el.querySelectorAll("[data-evtypedelete]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.evtypedelete;
+      if (eventTypeInUse(id)) { alert("This Event Type is used by an existing event — deactivate it instead of deleting."); return; }
+      const et = Store.eventTypes.find((t) => t.id === id);
+      if (!confirm(`Permanently delete "${et?.label || "this Event Type"}"? This can't be undone.`)) return;
+      Store.eventTypes = Store.eventTypes.filter((t) => t.id !== id);
+      if (eventTypeEditingId === id) eventTypeEditingId = null;
+      renderAdmin(el);
+    })
+  );
+  el.querySelectorAll("[data-evtypeup]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      swapEventTypeSortOrder(btn.dataset.evtypeup, -1);
+      renderAdmin(el);
+    })
+  );
+  el.querySelectorAll("[data-evtypedown]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      swapEventTypeSortOrder(btn.dataset.evtypedown, 1);
+      renderAdmin(el);
+    })
+  );
+}
+
+// Swaps this type's sortOrder with its immediate neighbor in the given
+// direction (-1 = up/earlier, 1 = down/later) — a simple adjacent-swap
+// reorder, sufficient for a short admin-curated list like this one.
+function swapEventTypeSortOrder(id, direction) {
+  const types = Store.eventTypes.slice().sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const i = types.findIndex((t) => t.id === id);
+  const j = i + direction;
+  if (i === -1 || j < 0 || j >= types.length) return;
+  const a = types[i], b = types[j];
+  const aOrder = a.sortOrder ?? 0, bOrder = b.sortOrder ?? 0;
+  Store.eventTypes = Store.eventTypes.map((t) => {
+    if (t.id === a.id) return { ...t, sortOrder: bOrder };
+    if (t.id === b.id) return { ...t, sortOrder: aOrder };
+    return t;
+  });
+}
+
 let calendarViewDate = (() => { const d = new Date(); d.setDate(1); return d; })();
 let calendarSelectedDate = null; // "YYYY-MM-DD" | null — null = show upcoming list instead of one day
 
@@ -6704,7 +7614,7 @@ function openEventModal(pageEl, existingRaw, presetDate) {
   const existing = existingRaw ? normalizeEvent(existingRaw) : null;
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
-  const typeId = existing?.eventType || EVENT_TYPES[0].id;
+  const typeId = existing?.eventType || firstActiveEventTypeId();
   const scope = existing?.scope || "ALLIANCE";
   let selectedColor = existing?.color || eventTypeInfo(typeId).defaultColor || DEFAULT_EVENT_COLOR;
 
@@ -6719,7 +7629,7 @@ function openEventModal(pageEl, existingRaw, presetDate) {
       <div class="field">
         <label>EVENT TYPE</label>
         <select id="evType">
-          ${EVENT_TYPES.map((et) => `<option value="${et.id}" ${et.id === typeId ? "selected" : ""}>${et.label}</option>`).join("")}
+          ${eventTypeDropdownOptionsHtml(typeId)}
         </select>
       </div>
       <div class="field">

@@ -386,27 +386,64 @@ const SEED_FEEDBACK = [
 // features elsewhere in this file.
 // ---------------------------------------------------------------------------
 
-// Preset event TYPES — purely for categorization/filtering, not display
-// color (that's a separate, freely-chosen per-event color — see
+// Event TYPES — purely for categorization/filtering, not display color
+// (that's a separate, freely-chosen per-event color — see
 // EVENT_COLOR_PRESETS below). `defaultColor` is only a convenience prefill
 // when an admin picks a type in the Add Event form; it never overrides a
-// color the admin actually chose. Add more entries here if your alliance
-// tracks other recurring systems.
-const EVENT_TYPES = [
-  { id: "svs", label: "SVS (State vs State)", defaultColor: "#8B5CF6" },
-  { id: "bear_trap", label: "Bear Trap", defaultColor: "#3B82F6" },
-  { id: "castle_battle", label: "Castle Battle", defaultColor: "#EC4899" },
-  { id: "foundry_battle", label: "Foundry Battle", defaultColor: "#F97316" },
-  { id: "frost_dragon", label: "Frost Dragon / Frost Trial", defaultColor: "#06B6D4" },
-  { id: "crazy_joe", label: "Crazy Joe", defaultColor: "#EC4899" },
-  { id: "alliance_mobilization", label: "Alliance Mobilization", defaultColor: "#22C55E" },
-  { id: "alliance_championship", label: "Alliance Championship", defaultColor: "#EAB308" },
-  { id: "fishing_tournament", label: "Fishing Tournament", defaultColor: "#EAB308" },
-  { id: "arena", label: "Arena Brawl", defaultColor: "#EC4899" },
-  { id: "custom", label: "Custom / Other", defaultColor: "#8B5CF6" },
-];
+// color the admin actually chose.
+//
+// This used to be a fixed array. It's now a reusable master list — ADMIN
+// manages it from STATE DASHBOARD → SCHEDULE / EVENTS → EVENT TYPE
+// MANAGEMENT (see renderEventTypeManagementHtml in app.js) — and every
+// Event Type dropdown across the site (State/Game Calendar, Alliance
+// Calendar) reads from the SAME Store.eventTypes list, so adding one type
+// there makes it available everywhere with no code change. SEED_EVENT_TYPES
+// below is only the one-time seed/first-run default; Store.eventTypes (not
+// this constant) is the live source of truth from then on — always read
+// through Store.eventTypes / eventTypeInfo() / activeEventTypes(), never
+// this array directly.
+const SEED_EVENT_TYPES = [
+  { id: "svs", label: "SVS (State vs State)", defaultColor: "#8B5CF6", description: "", isActive: true, sortOrder: 0 },
+  { id: "bear_trap", label: "Bear Trap", defaultColor: "#3B82F6", description: "", isActive: true, sortOrder: 1 },
+  { id: "castle_battle", label: "Castle Battle", defaultColor: "#EC4899", description: "", isActive: true, sortOrder: 2 },
+  { id: "foundry_battle", label: "Foundry Battle", defaultColor: "#F97316", description: "", isActive: true, sortOrder: 3 },
+  { id: "frost_dragon", label: "Frost Dragon / Frost Trial", defaultColor: "#06B6D4", description: "", isActive: true, sortOrder: 4 },
+  { id: "crazy_joe", label: "Crazy Joe", defaultColor: "#EC4899", description: "", isActive: true, sortOrder: 5 },
+  { id: "alliance_mobilization", label: "Alliance Mobilization", defaultColor: "#22C55E", description: "", isActive: true, sortOrder: 6 },
+  { id: "alliance_championship", label: "Alliance Championship", defaultColor: "#EAB308", description: "", isActive: true, sortOrder: 7 },
+  { id: "fishing_tournament", label: "Fishing Tournament", defaultColor: "#EAB308", description: "", isActive: true, sortOrder: 8 },
+  { id: "arena", label: "Arena Brawl", defaultColor: "#EC4899", description: "", isActive: true, sortOrder: 9 },
+  { id: "custom", label: "Custom / Other", defaultColor: "#8B5CF6", description: "", isActive: true, sortOrder: 10 },
+].map((et) => ({ ...et, createdAt: "2025-01-01T00:00:00.000Z", updatedAt: "2025-01-01T00:00:00.000Z" }));
+
+// Absolute last-resort shape — only used if Store.eventTypes is ever
+// somehow empty (deleting every type isn't possible from the UI below, but
+// this keeps eventTypeInfo() from ever returning undefined).
+const FALLBACK_EVENT_TYPE = { id: "custom", label: "Custom / Other", defaultColor: "#8B5CF6", description: "", isActive: true, sortOrder: 0 };
+
+// Looks up a type by id across the FULL list (active + inactive) — a
+// deactivated or since-deleted type must still resolve correctly for any
+// event that already references it (color, label), per "don't break
+// existing events" — only NEW-event dropdowns filter to active types (see
+// activeEventTypes below).
 function eventTypeInfo(id) {
-  return EVENT_TYPES.find((et) => et.id === id) || EVENT_TYPES[EVENT_TYPES.length - 1];
+  const types = Store.eventTypes;
+  return types.find((et) => et.id === id) || types[types.length - 1] || FALLBACK_EVENT_TYPE;
+}
+
+// Active types only, in their configured display order — this is what
+// every "Add Event" Event Type dropdown across the site should build its
+// options from.
+function activeEventTypes() {
+  return Store.eventTypes.filter((et) => et.isActive !== false).slice().sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+}
+
+// Whether any stored event (state/game calendar OR any alliance's
+// calendar) currently references this Event Type — governs whether Admin
+// may permanently delete it (unused types only) vs. must deactivate it
+// (already-used types keep their history intact).
+function eventTypeInUse(id) {
+  return Store.gameEvents.some((e) => (e.eventType || e.typeId) === id) || Store.allianceCalendarEvents.some((e) => (e.eventType || e.typeId) === id);
 }
 
 // Who an event is for — exactly one, shown as a small badge alongside the
@@ -612,7 +649,7 @@ function gameCalendarEventOptions() {
 // simple named-time list an alliance's leadership keeps for its own
 // recurring commitments (e.g. "Bear Trap — 20:00 UTC daily") — deliberately
 // NOT another calendar; the real Game Calendar already exists for
-// date-based events (see EVENT_TYPES/normalizeEvent above). This is just a
+// date-based events (see SEED_EVENT_TYPES/normalizeEvent above). This is just a
 // short reference list, so LEADER/R4 don't need Admin's calendar tools.
 const SEED_ALLIANCE_EVENT_TIMES = {};
 
@@ -679,7 +716,13 @@ const ALLIANCE_TRACKING_CATEGORIES = [
   "champTrack",
   "mobilization",
 ];
-const BEAR_TRAP_ASSIGNMENTS = ["NONE", "BT1", "BT2", "BOTH"];
+// "BOTH" was removed per spec — a player may only ever hold ONE assignment
+// at a time (Neither / Bear Trap 1 / Bear Trap 2). Any record already
+// stored as "BOTH" from before this change falls through the
+// BEAR_TRAP_ASSIGNMENTS.includes() guard everywhere it's read and displays
+// as "Neither" rather than crashing — effectively clearing the invalid
+// dual-assignment the next time that admin/leader/R4 looks at it.
+const BEAR_TRAP_ASSIGNMENTS = ["NONE", "BT1", "BT2"];
 
 function allianceTrackingCategory(alliance, category) {
   const all = Store.allianceTracking;
@@ -698,6 +741,217 @@ function updateAllianceTrackingField(alliance, category, playerId, patch) {
   forCategory[playerId] = { ...(forCategory[playerId] || {}), ...patch };
   forAlliance[category] = forCategory;
   Store.allianceTracking = { ...all, [alliance]: forAlliance };
+}
+
+// ---------------------------------------------------------------------------
+// Alliance Dashboard — Facilities (Expedition Facilities tracker). Leadership-
+// only (ADMIN/LEADER/R4) additive tab — see renderFacilitiesHtml/
+// wireFacilitiesSection in app.js. FACILITY_DEFINITIONS is fixed, non-editable
+// REFERENCE DATA describing the game's real facility map (8 types, 74 total
+// facilities across their valid levels) — Type, Level, Buff Name, Buff
+// Amount, and every valid Coordinate are all looked up from here, never
+// typed freely by a user, so an alliance's stored facility records can never
+// drift out of sync with the real game data. See the Add/Edit Facility
+// modal (openFacilityModal) for the Type→Level→Coordinate cascading
+// validation that relies on this table.
+const FACILITY_ORDER = ["CONSTRUCTION", "TECH", "DEFENSE", "WEAPON", "GATHERING", "PRODUCTION", "TRAINING", "EXPEDITION"];
+const FACILITY_DEFINITIONS = {
+  CONSTRUCTION: {
+    label: "Construction",
+    buffName: "Construction Speed",
+    levels: {
+      1: { buffAmount: 5, permanentLosses: false, coordinates: ["1068:138", "537:138", "138:138", "138:666", "138:1038", "666:1068", "1068:567", "1068:1068"] },
+      3: { buffAmount: 8, permanentLosses: false, coordinates: ["486:327", "768:867", "867:567", "327:666"] },
+    },
+  },
+  TECH: {
+    label: "Tech",
+    buffName: "Research Speed",
+    levels: {
+      1: { buffAmount: 5, permanentLosses: false, coordinates: ["957:237", "666:267", "237:237", "267:537", "237:957", "537:936", "936:537", "957:957"] },
+      3: { buffAmount: 8, permanentLosses: false, coordinates: ["867:327", "327:327", "327:867", "867:867"] },
+    },
+  },
+  DEFENSE: {
+    label: "Defense",
+    buffName: "Troop Defense",
+    levels: {
+      2: { buffAmount: 5, permanentLosses: false, coordinates: ["666:138", "438:267", "138:537", "237:768", "537:1038", "738:957", "1068:666", "957:438"] },
+      4: { buffAmount: 8, permanentLosses: false, coordinates: ["816:717", "387:717", "588:327"] },
+    },
+  },
+  // Weapon Level 4 is the ONLY facility tier in this reference data that
+  // causes permanent troop losses when capturing it (see `permanentLosses`
+  // below) — this warning does NOT apply to Defense Level 4.
+  WEAPON: {
+    label: "Weapon",
+    buffName: "Troop Attack",
+    levels: {
+      2: { buffAmount: 5, permanentLosses: false, coordinates: ["867:138", "366:138", "138:438", "138:867", "438:1068", "1068:327", "1068:867", "867:1068"] },
+      4: { buffAmount: 8, permanentLosses: true, coordinates: ["816:486", "387:486", "588:867"] },
+    },
+  },
+  GATHERING: {
+    label: "Gathering",
+    buffName: "Gathering Speed",
+    levels: {
+      1: { buffAmount: 5, permanentLosses: false, coordinates: ["957:138", "537:87", "138:237", "87:666", "267:1068", "636:1137", "1137:567", "1068:936"] },
+    },
+  },
+  PRODUCTION: {
+    label: "Production",
+    buffName: "RSS Production Speed",
+    levels: {
+      1: { buffAmount: 5, permanentLosses: false, coordinates: ["1068:237", "768:138", "237:138", "138:327", "138:957", "327:1038", "1068:747", "957:1068"] },
+    },
+  },
+  TRAINING: {
+    label: "Training",
+    buffName: "Training Speed",
+    levels: {
+      2: { buffAmount: 5, permanentLosses: false, coordinates: ["237:486", "138:747", "486:957", "768:1038", "957:747", "1068:486", "486:138", "768:237"] },
+    },
+  },
+  // Expedition Level 3 is the highest individual facility buff in this data
+  // (+15% March Speed).
+  EXPEDITION: {
+    label: "Expedition",
+    buffName: "March Speed",
+    levels: {
+      3: { buffAmount: 15, permanentLosses: false, coordinates: ["768:327", "327:567", "486:867", "867:666"] },
+    },
+  },
+};
+
+function facilityTypeLevels(type) {
+  const def = FACILITY_DEFINITIONS[type];
+  return def ? Object.keys(def.levels).map(Number).sort((a, b) => a - b) : [];
+}
+function facilityLevelInfo(type, level) {
+  return FACILITY_DEFINITIONS[type]?.levels?.[level] || null;
+}
+function facilityCoordinates(type, level) {
+  return facilityLevelInfo(type, level)?.coordinates || [];
+}
+// Buff Name/Amount/permanent-losses flag are ALWAYS derived from Type+Level
+// via this lookup — never stored as free-typed fields on a facility record
+// (see the "derived values must never be stored as raw input" pattern used
+// elsewhere in this app, e.g. memberAccountStatus()).
+function facilityBuffInfo(type, level) {
+  const def = FACILITY_DEFINITIONS[type];
+  const lvl = facilityLevelInfo(type, level);
+  if (!def || !lvl) return null;
+  return { buffName: def.buffName, buffAmount: lvl.buffAmount, permanentLosses: !!lvl.permanentLosses };
+}
+function isValidFacilityCombo(type, level, coordinate) {
+  return facilityCoordinates(type, Number(level)).includes(coordinate);
+}
+
+// Per-alliance owned/targeted facility records — { [allianceTag]: FacilityRecord[] }.
+// Each record: { id, type, level, coordinateX, coordinateY, status, priority,
+// assignedTo, assignedToName, capturedAt, protectionEndsAt, notes, createdAt, updatedAt }.
+// `status` is one of FACILITY_STATUSES; "Protected" (section 27's 4th summary
+// count) is NOT a stored status — it's derived at render time as any OWNED
+// record whose protectionEndsAt is still in the future, so it can never
+// drift out of sync with the actual timer.
+const SEED_ALLIANCE_FACILITIES = {};
+const FACILITY_STATUSES = ["TARGET", "CONTESTED", "OWNED", "LOST"];
+const FACILITY_STATUS_LABELS = { TARGET: "Target", CONTESTED: "Contested", OWNED: "Owned", LOST: "Lost" };
+const FACILITY_PRIORITIES = ["LOW", "NORMAL", "HIGH"];
+// Protection window after a successful capture — 3 days / 72 hours.
+const FACILITY_PROTECTION_MS = 72 * 60 * 60 * 1000;
+
+// Ownership limit — how many ACTIVE (status === "OWNED") facilities of a
+// given type an alliance may count toward its buff summary at once.
+// Construction/Defense/Tech/Weapon each have 2 valid levels and may be
+// OWNED at BOTH (they must be two DIFFERENT levels — never the same level
+// twice); Expedition/Gathering/Training/Production only ever have ONE valid
+// level to begin with, so their cap is 1. This only restricts what may be
+// marked OWNED — a TARGET/CONTESTED/LOST record of the same type+level is
+// still trackable beyond the cap, it just can't be marked OWNED until an
+// existing OWNED slot for that type frees up (see canAddActiveFacility).
+const FACILITY_MAX_ACTIVE = {
+  CONSTRUCTION: 2,
+  DEFENSE: 2,
+  TECH: 2,
+  WEAPON: 2,
+  EXPEDITION: 1,
+  GATHERING: 1,
+  TRAINING: 1,
+  PRODUCTION: 1,
+};
+function facilityMaxActiveForType(type) {
+  return FACILITY_MAX_ACTIVE[type] || 1;
+}
+// Distinct levels currently OWNED for one type within an alliance —
+// `excludeId` lets an edit-in-place check ignore the record being edited so
+// re-saving it at its own existing level/status isn't mistaken for a new slot.
+function allianceActiveFacilityLevels(alliance, type, excludeId) {
+  return (Store.allianceFacilities[alliance] || [])
+    .filter((r) => r.type === type && r.status === "OWNED" && r.id !== excludeId)
+    .map((r) => r.level);
+}
+// Whether a facility of this Type+Level may be marked OWNED right now —
+// false if that exact level is already OWNED elsewhere (same level can never
+// count twice) or the type is already at its max distinct-level cap.
+function canAddActiveFacility(alliance, type, level, excludeId) {
+  const activeLevels = allianceActiveFacilityLevels(alliance, type, excludeId);
+  if (activeLevels.includes(level)) return false;
+  return activeLevels.length < facilityMaxActiveForType(type);
+}
+
+function allianceFacilityRecords(alliance) {
+  return (Store.allianceFacilities[alliance] || []).filter((r) => isValidFacilityCombo(r.type, r.level, `${r.coordinateX}:${r.coordinateY}`));
+}
+function facilityIsProtected(r) {
+  return r.status === "OWNED" && !!r.protectionEndsAt && r.protectionEndsAt > Date.now();
+}
+// Duplicate-coordinate prevention (spec section 26) — within one alliance,
+// the same map coordinate can't be tracked by two different (non-LOST)
+// records at once. `excludeId` lets an edit-in-place check ignore itself.
+function facilityCoordinateInUse(alliance, coordinateX, coordinateY, excludeId) {
+  return (Store.allianceFacilities[alliance] || []).some(
+    (r) => r.id !== excludeId && r.status !== "LOST" && r.coordinateX === coordinateX && r.coordinateY === coordinateY
+  );
+}
+function upsertAllianceFacility(alliance, record) {
+  if (!alliance) return;
+  const all = Store.allianceFacilities;
+  const list = all[alliance] || [];
+  const idx = list.findIndex((r) => r.id === record.id);
+  all[alliance] = idx === -1 ? [...list, record] : list.map((r, i) => (i === idx ? record : r));
+  Store.allianceFacilities = all;
+}
+function deleteAllianceFacility(alliance, id) {
+  if (!alliance) return;
+  const all = Store.allianceFacilities;
+  all[alliance] = (all[alliance] || []).filter((r) => r.id !== id);
+  Store.allianceFacilities = all;
+}
+// Active Facility Buff Summary (spec sections 15/42-43) — auto-calculated,
+// never editable directly. STACKING RULE: same type + DIFFERENT level stacks
+// (sum both levels' buff amounts); same type + SAME level counts only once,
+// no matter how many duplicate records exist at that exact type+level — the
+// `Set` of owned levels below is what enforces that de-duplication. Also
+// defensively re-applies the FACILITY_MAX_ACTIVE ownership cap here (not
+// just at save time in the Add/Edit modal) — `.slice(0, max)` below means
+// even data that somehow ended up with more OWNED levels than the type
+// allows (e.g. imported/legacy records) can never count more than the cap
+// toward the buff total.
+function computeFacilityBuffSummary(records) {
+  const owned = (records || []).filter((r) => r.status === "OWNED");
+  const summary = {};
+  FACILITY_ORDER.forEach((type) => {
+    const levelsOwned = new Set(owned.filter((r) => r.type === type).map((r) => r.level));
+    if (!levelsOwned.size) return;
+    const def = FACILITY_DEFINITIONS[type];
+    const levels = Array.from(levelsOwned)
+      .sort((a, b) => a - b)
+      .slice(0, facilityMaxActiveForType(type))
+      .map((lvl) => ({ level: lvl, buffAmount: def.levels[lvl]?.buffAmount || 0 }));
+    summary[type] = { buffName: def.buffName, totalAmount: levels.reduce((sum, l) => sum + l.buffAmount, 0), levels };
+  });
+  return summary;
 }
 
 // ---------------------------------------------------------------------------
@@ -779,6 +1033,7 @@ const SUPABASE_SYNCED_DEFAULTS = {
   wos_schedule_published: SEED_SCHEDULE_PUBLISHED,
   wos_feedback: SEED_FEEDBACK,
   wos_alliances: SEED_ALLIANCES,
+  wos_event_types: SEED_EVENT_TYPES,
   wos_furnace_fc: SEED_FURNACE_FC,
   wos_alliance_colors: {},
   wos_bag_submissions: {},
@@ -806,6 +1061,7 @@ const SUPABASE_SYNCED_DEFAULTS = {
   wos_alliance_r4_jobs: SEED_ALLIANCE_R4_JOBS,
   wos_alliance_tracking: SEED_ALLIANCE_TRACKING,
   wos_alliance_reminders: SEED_ALLIANCE_REMINDERS,
+  wos_alliance_facilities: SEED_ALLIANCE_FACILITIES,
   // NAP Dashboard — see the "NAP Dashboard" block above.
   wos_nap_rules: SEED_NAP_RULES,
   wos_nap_alliances: SEED_NAP_ALLIANCES,
@@ -870,6 +1126,7 @@ const Store = {
       this._set("wos_schedule_published", SEED_SCHEDULE_PUBLISHED);
       this._set("wos_feedback", SEED_FEEDBACK);
       this._set("wos_alliances", SEED_ALLIANCES);
+      this._set("wos_event_types", SEED_EVENT_TYPES);
       this._set("wos_furnace_fc", SEED_FURNACE_FC);
       this._set("wos_alliance_colors", {});
       this._set("wos_bag_submissions", {});
@@ -885,6 +1142,7 @@ const Store = {
       this._set("wos_alliance_r4_jobs", SEED_ALLIANCE_R4_JOBS);
       this._set("wos_alliance_tracking", SEED_ALLIANCE_TRACKING);
       this._set("wos_alliance_reminders", SEED_ALLIANCE_REMINDERS);
+      this._set("wos_alliance_facilities", SEED_ALLIANCE_FACILITIES);
       this._set("wos_nap_rules", SEED_NAP_RULES);
       this._set("wos_nap_alliances", SEED_NAP_ALLIANCES);
       this._set("wos_nap_fortress", SEED_NAP_FORTRESS);
@@ -1014,6 +1272,12 @@ const Store = {
   get alliances() { return this._synced("wos_alliances", SEED_ALLIANCES).get(); },
   set alliances(v) { this._synced("wos_alliances", SEED_ALLIANCES).set(v); },
 
+  // Event Type master list — single source of truth for every Event Type
+  // dropdown site-wide (State Calendar, every alliance's Calendar). See the
+  // SEED_EVENT_TYPES comment above.
+  get eventTypes() { return this._synced("wos_event_types", SEED_EVENT_TYPES).get(); },
+  set eventTypes(v) { this._synced("wos_event_types", SEED_EVENT_TYPES).set(v); },
+
   get furnaceFc() { return this._synced("wos_furnace_fc", SEED_FURNACE_FC).get(); },
   set furnaceFc(v) { this._synced("wos_furnace_fc", SEED_FURNACE_FC).set(v); },
 
@@ -1071,7 +1335,7 @@ const Store = {
   set svsSignupsOpen(v) { this._synced("wos_svs_signups_open", true).set(v); },
 
   // Game Calendar — array of event records, see SEED_GAME_EVENTS and
-  // EVENT_TYPES above, and the "Game Calendar" block in app.js.
+  // SEED_EVENT_TYPES above, and the "Game Calendar" block in app.js.
   get gameEvents() { return this._synced("wos_game_events", SEED_GAME_EVENTS).get(); },
   set gameEvents(v) { this._synced("wos_game_events", SEED_GAME_EVENTS).set(v); },
 
@@ -1099,6 +1363,9 @@ const Store = {
   set allianceTracking(v) { this._synced("wos_alliance_tracking", SEED_ALLIANCE_TRACKING).set(v); },
   get allianceReminders() { return this._synced("wos_alliance_reminders", SEED_ALLIANCE_REMINDERS).get(); },
   set allianceReminders(v) { this._synced("wos_alliance_reminders", SEED_ALLIANCE_REMINDERS).set(v); },
+  // Facilities — see FACILITY_DEFINITIONS/SEED_ALLIANCE_FACILITIES above.
+  get allianceFacilities() { return this._synced("wos_alliance_facilities", SEED_ALLIANCE_FACILITIES).get(); },
+  set allianceFacilities(v) { this._synced("wos_alliance_facilities", SEED_ALLIANCE_FACILITIES).set(v); },
 
   // NAP Dashboard — see the "NAP Dashboard" block above and
   // renderNapDashboard / renderNapAdminPanelHtml in app.js.
