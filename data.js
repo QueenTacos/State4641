@@ -1058,6 +1058,87 @@ function stateFacilityOwnerLabel(info) {
   if (r.rotating && r.rotationAlliance) bits.push(`Rotating with ${r.rotationAlliance}`);
   return bits.length ? `${info.alliance} — ${bits.join(" / ")}` : info.alliance;
 }
+
+// ---------------------------------------------------------------------------
+// FACILITY PRIVACY / CLAIM VISIBILITY — the single point where the
+// state-wide "who owns this" truth from stateFacilityOwnerInfo() gets
+// masked down to what a given VIEWER is allowed to know. A true ADMIN
+// always gets the untouched raw info; anyone else gets the untouched raw
+// info ONLY when it's their OWN alliance's ownership being asked about —
+// every other case (owned by someone else, shared, rotating, contested,
+// ambiguous) collapses to one of the public labels (CLAIMED / UNCLAIMED /
+// CONTESTED), with no alliance name, sharing partner, or rotation partner
+// anywhere in the returned object. EVERY UI surface that displays ownership
+// across alliance lines (the coordinate dropdown, its info panel, the ADD
+// FACILITY cross-alliance warning/transfer prompt) must route through this
+// before rendering anything — nothing downstream of this function ever
+// sees the real owner for a facility it isn't allowed to. There is
+// deliberately no second masked copy of the data stored anywhere — this
+// recomputes from the same live stateFacilityOwnerInfo() every call.
+//
+// `viewerAlliance` is the viewer's OWN alliance — for LEADER/R4/MEMBER this
+// is always their actual alliance (officerScoped forces viewingAlliance to
+// user.alliance app-wide — see allianceDashboardViewingAlliance in app.js),
+// so passing the Facility modal's existing `viewingAlliance` straight
+// through is correct and needs no new plumbing.
+//
+// IMPORTANT LIMITATION (same standing caveat as every permission check in
+// this app, restated here because this round is explicitly about privacy):
+// this is UI-LAYER MASKING ONLY. The full unmasked record is still present
+// in Store.allianceFacilities in the browser's own memory/localStorage, and
+// in Supabase mode is returned as-is by a wide-open, RLS-less query — this
+// codebase has no real backend, so there is no server/RLS layer to enforce
+// this at the data layer, only this function stopping the APP from ever
+// RENDERING it to someone it shouldn't. A technically inclined member could
+// still open devtools and read Store.allianceFacilities directly. Building
+// actual server-side enforcement (real Supabase RLS policies keyed to a
+// real authenticated session, or a backend that never sends the field in
+// the first place) is out of reach of this no-build, no-backend app and
+// would need real backend infrastructure this project doesn't have.
+function facilityOwnerVisibility(rawInfo, viewerAlliance, isTrueAdminViewer) {
+  if (isTrueAdminViewer) return { ...rawInfo, visibility: "ADMIN" };
+  if (rawInfo.status === "UNCLAIMED") return { status: "UNCLAIMED", visibility: "PUBLIC" };
+  if (rawInfo.status === "CONTESTED" || rawInfo.status === "UNKNOWN") return { status: "CONTESTED", visibility: "PUBLIC" };
+  // OWNED
+  if (rawInfo.alliance === viewerAlliance) return { ...rawInfo, visibility: "OWN" };
+  return { status: "CLAIMED", visibility: "PUBLIC" };
+}
+// Compact one-line label for facilityOwnerVisibility()'s result — used by
+// the coordinate dropdown's <option> text (spec section 7). ADMIN/OWN
+// visibility gets the same full label as stateFacilityOwnerLabel (sharing/
+// rotation detail included, since both are allowed to see it in full);
+// PUBLIC visibility only ever prints the public status word — no name.
+function facilityOwnerVisibleLabel(vis) {
+  if (vis.visibility === "ADMIN") return stateFacilityOwnerLabel(vis);
+  if (vis.visibility === "OWN") return "Your Alliance";
+  return vis.status === "CLAIMED" ? "Claimed" : vis.status === "UNCLAIMED" ? "Unclaimed" : "Contested";
+}
+
+// ADMIN-ONLY "STATE DASHBOARD → FACILITIES → CURRENT OWNERSHIP" page (spec
+// section 12) — every physical Type+Level+Coordinate slot that exists in
+// the game (from FACILITY_DEFINITIONS, the same source facilityCoordinates
+// already reads), each resolved to its current owner via the SAME live
+// stateFacilityOwnershipMap/stateFacilityOwnerInfo the coordinate dropdown
+// uses. This is NOT a second stored dataset — it's generated fresh on every
+// call, purely by enumerating the fixed game reference data and looking up
+// each slot; there's nothing here to fall out of sync. Always returns the
+// FULL unmasked truth (this function has no viewer argument) — it's the
+// caller's job to only ever route it to a true-ADMIN-gated page, exactly
+// like every other admin-only render in this app.
+function allStateFacilitySlots() {
+  const slots = [];
+  FACILITY_ORDER.forEach((type) => {
+    facilityTypeLevels(type).forEach((level) => {
+      const map = stateFacilityOwnershipMap(type, level);
+      facilityCoordinates(type, level).forEach((coord) => {
+        const [coordinateX, coordinateY] = coord.split(":").map(Number);
+        const info = stateFacilityOwnerInfo(type, level, coordinateX, coordinateY, map);
+        slots.push({ type, level, coordinateX, coordinateY, coord, info });
+      });
+    });
+  });
+  return slots;
+}
 function upsertAllianceFacility(alliance, record) {
   if (!alliance) return;
   const all = Store.allianceFacilities;
@@ -1114,6 +1195,36 @@ function applyFacilityOwnershipTransfer(type, level, coordinateX, coordinateY, p
       changedAt: Date.now(), // UTC epoch ms — same convention as every other timestamp in this app (fmtUtcDateTime renders it)
     },
   ];
+}
+// Standalone "Transfer" quick action from the ADMIN-only Current Ownership
+// page (spec section 12 — distinct from the Add/Edit Facility modal's own
+// Cancel/Transfer prompt, which goes through applyFacilityOwnershipTransfer
+// above alongside a save the modal was already doing). Here there's no
+// modal save in flight, so this function does BOTH halves of the transfer
+// itself: clones the existing OWNED record into the new owner's own array
+// (new id/timestamps, same Type/Level/Coordinate/buff-relevant fields,
+// Sharing/Rotation reset since those were THIS alliance's own arrangement
+// and don't carry over to a new owner), then reuses
+// applyFacilityOwnershipTransfer for the "flip old owner to LOST + log
+// history" half so both transfer paths write the exact same audit shape.
+function quickTransferFacilityOwnership(record, previousOwner, newOwner, changedBy) {
+  if (!record || !previousOwner || !newOwner || previousOwner === newOwner) return;
+  const newRecord = {
+    ...record,
+    id: "fac" + Date.now(),
+    sharingEnabled: false,
+    sharedWithAlliance: null,
+    rotating: false,
+    rotationAlliance: null,
+    currentRotationOwnerAlliance: null,
+    nextRotationOwnerAlliance: null,
+    rotationNotes: "",
+    capturedAt: Date.now(),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  upsertAllianceFacility(newOwner, newRecord);
+  applyFacilityOwnershipTransfer(record.type, record.level, record.coordinateX, record.coordinateY, previousOwner, newOwner, changedBy);
 }
 // Active Facility Buff Summary (spec sections 15/42-43) — auto-calculated,
 // never editable directly. STACKING RULE: same type + DIFFERENT level stacks
