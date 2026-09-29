@@ -82,9 +82,9 @@ page once the app is running:
   30 pts/min — Construction, Research, Troop, *and* General/Expert Skill
   all score at this same rate (Construction/Research/Troop in the
   top-level SPEEDUPS section auto-fill into their day below, while General
-  is a wildcard that scores on its own and can stand in for any of the
-  three — see "Speedups: top-level entry, auto-fill, and the General
-  wildcard"), Fire Crystals (building upgrades) 2,000, Fire Crystal Shards
+  is a wildcard the member allocates across Day 1/2/3 themselves — see
+  "Speedups: top-level entry, auto-fill, and the General Speedup Day
+  Selection"), Fire Crystals (building upgrades) 2,000, Fire Crystal Shards
   (research) 1,000, Charm Guide +1 = 70, Charm Design +1 = 70 (both D1
   fields — this 70pt rate was carried over from an earlier "Chief Charm"
   field these two replaced, since no distinct rate was given for them;
@@ -436,7 +436,7 @@ availability"), and a second click on **SAVE ANYWAY** is required to
 confirm — the schedule slot itself is left exactly as it was either way;
 un-assigning it is a separate, deliberate action on the SCHEDULE tab.
 
-### Speedups: top-level entry, auto-fill, and the General wildcard
+### Speedups: top-level entry, auto-fill, and the General Speedup Day Selection
 
 The **SPEEDUPS** section at the top of the backpack has four fields —
 Construction, Research, Troop, and General — so a member can log
@@ -446,15 +446,26 @@ moment you tab or click out of them (D1's Construction, D2's Research,
 D4's Troop Train / Promotion Speedups) — enter it once at the top and it
 shows up below.
 
-**General is a wildcard.** It doesn't score points directly (nothing
-tells the app which building you'd actually spend it on), but it counts
-toward *eligibility* for Construction, Research, or Troop Day — even at 0
-in a day's own field, banked General minutes are enough to unlock that
-day's time slot. Each day's status box also shows a live suggestion of
-where your General minutes have the most open opportunity right now,
-e.g. `D2 — Research (300 mins of General speedups suggested to use)` —
-it points at whichever eligible day currently has the least of its own
-speedup type banked.
+**General is a shared pool the member allocates themselves.** It doesn't
+score points on its own — right below the General field, a **"USE
+GENERAL SPEEDUPS ON"** panel lets the member check any combination of
+**Day 1 — Construction**, **Day 2 — Research**, and **Day 3 — Troop**,
+then either **Split Evenly Across Selected Days** (the pool divides into
+whole minutes, with any leftover minute going to the earliest selected
+day so the total is never off by rounding) or uncheck that box to type an
+exact number of minutes for each selected day. Whatever's allocated to a
+day is added to that day's own speedup minutes for both scoring (still 30
+pts/min, subject to that day's own maxed-out gates — see below) and
+*eligibility* for a time slot on that day. A day that isn't checked gets
+none of the pool. The panel shows **Remaining General Speedups** live, and
+flags in red if no day is selected yet, or if manually-entered minutes
+across the selected days add up to more than the member's total General
+Speedups — the app never actually lets more than the true total score
+across all days combined, even if the fields momentarily show an
+over-allocated total while a member is mid-edit. All of this math lives in
+one function, `generalSpeedupAllocation` (`data.js`), so the day fields,
+the eligibility checks, and the panel itself can never drift out of sync
+with each other.
 
 ### Construction Day (D1) and Research Day (D2) gates
 

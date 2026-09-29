@@ -806,7 +806,7 @@ function pointsForMemberOnDay(memberId, day) {
 // Which schedule day (by its label) is which SvS day — Construction,
 // Research, and Troop Training all gate whether a member can produce
 // anything during their window on banked speedup minutes (General
-// wildcard minutes count too — see generalSpeedupSuggestion in data.js).
+// wildcard minutes count too — see generalSpeedupAllocation in data.js).
 function isConstructionDay(day) {
   return /construction/i.test(day || "");
 }
@@ -823,7 +823,8 @@ function isTroopDay(day) {
 // wildcard minutes standing in for them — to actually train/promote
 // anything during the window.
 function troopDayEligible(values) {
-  return Number(values?.sp_troop_train) > 0 || Number(values?.sp_general) > 0;
+  const alloc = generalSpeedupAllocation(values);
+  return Number(values?.sp_troop_train) > 0 || alloc.d3 > 0;
 }
 
 // Single dispatcher covering all three gated days, so slot-locking logic
@@ -1551,10 +1552,14 @@ function luckyWheelCalcHtml(gems) {
 // Live status line under a "standout" speedup field (Construction,
 // Research, Troop) — these numbers are what actually gate that day's time
 // slot (dayEligible, above), so it's worth flagging right where they're
-// entered rather than only discovering it on TIME SLOTS. Also surfaces the
-// General-wildcard suggestion when it points at this day.
+// entered rather than only discovering it on TIME SLOTS. Also surfaces
+// however much General Speedup was allocated to this day (see the day
+// selection panel under SPEEDUPS / generalSpeedupAllocation in data.js).
 function dayStatusHtml(statusKey, values) {
-  const suggestion = generalSpeedupSuggestion(values);
+  const alloc = generalSpeedupAllocation(values);
+  const allocKey = statusKey === "construction" ? "d1" : statusKey === "research" ? "d2" : "d3";
+  const allocMins = alloc[allocKey] || 0;
+  const allocNote = allocMins ? ` (incl. ${fmtNum(allocMins)} allocated from General)` : "";
   // tone: "ok" (green, definitely eligible), "warn" (amber, "may be
   // eligible" — exactly one of two gates is maxed), or "closed" (red,
   // either 0 minutes banked or both gates maxed / no capacity at all).
@@ -1562,58 +1567,106 @@ function dayStatusHtml(statusKey, values) {
   if (statusKey === "construction") {
     const fullyMaxed = constructionFullyMaxed(values);
     const partiallyMaxed = constructionPartiallyMaxed(values);
-    const mins = Number(values?.d1_construction) || 0;
+    const mins = (Number(values?.d1_construction) || 0) + allocMins;
     if (fullyMaxed) {
       tone = "closed";
       primary = "Furnace at the state's current cap AND War Academy maxed — Construction speedups score 0 pts. Day 1 points now come only from Chief Charm.";
     } else if (partiallyMaxed) {
       tone = mins > 0 ? "warn" : "closed";
       primary = mins > 0
-        ? `${fmtNum(mins)} min banked — furnace cap or War Academy is maxed (not both), so this may be eligible for a Construction Day time slot.`
+        ? `${fmtNum(mins)} min banked${allocNote} — furnace cap or War Academy is maxed (not both), so this may be eligible for a Construction Day time slot.`
         : "Furnace cap or War Academy is maxed (not both) — bank Construction minutes and you may still be eligible for a Construction Day time slot.";
     } else {
       tone = mins > 0 ? "ok" : "closed";
       primary = mins > 0
-        ? `${fmtNum(mins)} min banked — eligible for a Construction Day time slot.`
+        ? `${fmtNum(mins)} min banked${allocNote} — eligible for a Construction Day time slot.`
         : "0 minutes — no real capacity to build on Construction Day, and no Construction Day time slot (see TIME SLOTS).";
     }
   } else if (statusKey === "research") {
     const fullyMaxed = researchFullyMaxed(values);
     const partiallyMaxed = researchPartiallyMaxed(values);
-    const mins = Number(values?.d2_research) || 0;
+    const mins = (Number(values?.d2_research) || 0) + allocMins;
     if (fullyMaxed) {
       tone = "closed";
       primary = "War Academy Research AND Tech Research both maxed — Research speedups score 0 pts here. Fire Crystal Shards, sigils, books, and hero shards still count.";
     } else if (partiallyMaxed) {
       tone = mins > 0 ? "warn" : "closed";
       primary = mins > 0
-        ? `${fmtNum(mins)} min banked — War Academy Research or Tech Research is maxed (not both), so this may be eligible for a Research Day time slot.`
+        ? `${fmtNum(mins)} min banked${allocNote} — War Academy Research or Tech Research is maxed (not both), so this may be eligible for a Research Day time slot.`
         : "War Academy Research or Tech Research is maxed (not both) — bank Research minutes and you may still be eligible for a Research Day time slot.";
     } else {
       tone = mins > 0 ? "ok" : "closed";
       primary = mins > 0
-        ? `${fmtNum(mins)} min banked — eligible for a Research Day time slot.`
+        ? `${fmtNum(mins)} min banked${allocNote} — eligible for a Research Day time slot.`
         : "0 minutes — no real capacity to research on Research Day, and no Research Day time slot (see TIME SLOTS).";
     }
   } else {
     const ok = troopDayEligible(values);
-    const mins = Number(values?.sp_troop_train) || 0;
+    const ownMins = Number(values?.sp_troop_train) || 0;
+    const mins = ownMins + allocMins;
     tone = ok ? "ok" : "closed";
     primary = ok
-      ? `${fmtNum(mins)} min banked${mins === 0 ? " (from General wildcard)" : ""} — eligible for a Troop Day time slot.`
+      ? `${fmtNum(mins)} min banked${ownMins === 0 && allocMins > 0 ? " (from General wildcard)" : allocNote} — eligible for a Troop Day time slot.`
       : "0 minutes — no real capacity to promote troops on Troop Day, and no Troop Day time slot (see TIME SLOTS).";
   }
-  const dayLabelForKey = { construction: "D1 — Construction", research: "D2 — Research", troop: "D4 — Troop" }[statusKey];
-  const sub = suggestion && suggestion.day === dayLabelForKey
-    ? `${suggestion.label} (${fmtNum(suggestion.mins)} mins of General speedups suggested to use)`
-    : "";
   const toneColor = tone === "ok" ? "var(--accent-green)" : tone === "warn" ? "var(--accent-amber)" : "var(--accent-red)";
   const toneBg = tone === "ok" ? "rgba(2,148,86,.1)" : tone === "warn" ? "rgba(248,106,56,.1)" : "rgba(255,84,112,.1)";
   return `
     <div class="rate" style="margin-top:6px;padding:8px 10px;border-radius:6px;background:${toneBg};border:1px solid ${toneColor};color:${toneColor};">
       ${primary}
     </div>
-    ${sub ? `<div class="rate" style="margin-top:4px;color:var(--accent-amber);">${sub}</div>` : ""}
+  `;
+}
+
+// General Speedup Day Selection panel — rendered under the SPEEDUPS
+// section's field grid. Lets a member spread their one shared General
+// Speedup pool (values.sp_general) across Day 1 — Construction, Day 2 —
+// Research, and Day 3 — Troop, either split evenly across whichever days
+// they check or entered exactly per day. All the actual math (even split,
+// manual clamping, remaining) lives in generalSpeedupAllocation in
+// data.js — this just renders that result and the controls that feed it.
+function generalSpeedupPanelHtml(values) {
+  const total = Number(values?.sp_general) || 0;
+  const alloc = generalSpeedupAllocation(values);
+  const dayMeta = [
+    { key: "d1", label: "Day 1 — Construction" },
+    { key: "d2", label: "Day 2 — Research" },
+    { key: "d3", label: "Day 3 — Troop" },
+  ];
+  const dayCheckboxHtml = (d) => `
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;">
+      <input type="checkbox" data-genday="${d.key}" ${values?.[`sp_general_use_${d.key}`] ? "checked" : ""} /> ${d.label}
+    </label>`;
+  const manualFieldHtml = (d) => {
+    const used = !!values?.[`sp_general_use_${d.key}`];
+    return `
+    <div class="field">
+      <label>${d.label}</label>
+      <div class="field-unit">
+        <input type="number" min="0" data-genalloc="${d.key}" value="${used ? Number(values?.[`sp_general_alloc_${d.key}`]) || 0 : 0}" ${used ? "" : "disabled"} placeholder="0" />
+        <span class="unit-suffix">min</span>
+      </div>
+    </div>`;
+  };
+  const evenResultHtml = (d) => `
+    <div class="field">
+      <label>${d.label}</label>
+      <div class="rate" style="font-size:13px;color:var(--text);">${fmtNum(alloc[d.key])} min</div>
+    </div>`;
+  return `
+    <div class="rate" style="margin:14px 0 6px;letter-spacing:.5px;font-size:10.5px;color:var(--text-faint);">USE GENERAL SPEEDUPS ON</div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px;">
+      ${dayMeta.map(dayCheckboxHtml).join("")}
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);margin-bottom:10px;cursor:pointer;">
+      <input type="checkbox" data-gensplit ${alloc.splitEven ? "checked" : ""} /> Split Evenly Across Selected Days
+    </label>
+    <div class="field-grid">
+      ${dayMeta.map(alloc.splitEven ? evenResultHtml : manualFieldHtml).join("")}
+    </div>
+    ${alloc.noneSelected ? `<div class="rate" style="margin-top:8px;color:var(--accent-red);">Select at least one day to allocate your ${fmtNum(total)} min of General Speedups.</div>` : ""}
+    ${alloc.overAllocated ? `<div class="rate" style="margin-top:8px;color:var(--accent-red);">Allocated minutes exceed your total General Speedups — reduce one or more days below.</div>` : ""}
+    <div class="rate" style="margin-top:8px;color:${alloc.remaining < 0 ? "var(--accent-red)" : "var(--text-dim)"};">Remaining General Speedups: ${fmtNum(alloc.remaining)} min</div>
   `;
 }
 
@@ -1624,7 +1677,7 @@ function renderWizardBackpack(el, wrap) {
       <div class="section-title">${section.title}</div>
       ${
         section.title === "SPEEDUPS"
-          ? `<p style="font-size:11.5px;color:var(--text-dim);margin:-4px 0 12px;">Enter what you have banked — Construction, Research, and Troop auto-fill into their matching day below. <strong style="color:var(--text);">General</strong> is a wildcard: it can stand in for any of the three, spent wherever the opportunity is best.</p>`
+          ? `<p style="font-size:11.5px;color:var(--text-dim);margin:-4px 0 12px;">Enter what you have banked — Construction, Research, and Troop auto-fill into their matching day below. <strong style="color:var(--text);">General</strong> is a wildcard: allocate it across Day 1/2/3 below and it scores through whichever day(s) you assign it to.</p>`
           : ""
       }
       ${
@@ -1671,7 +1724,8 @@ function renderWizardBackpack(el, wrap) {
             </div>`;
           })
           .join("")}
-      </div>`
+      </div>
+      ${section.title === "SPEEDUPS" ? generalSpeedupPanelHtml(svsDraft.values) : ""}`
     ).join("")}
     <button class="btn primary" id="wizNext" style="margin-top:6px;">NEXT → REVIEW POINTS</button>
   `;
@@ -1710,6 +1764,32 @@ function renderWizardBackpack(el, wrap) {
     input.addEventListener("change", () => {
       commitLocal();
       if (field?.syncTo) svsDraft.values[field.syncTo] = svsDraft.values[input.dataset.field];
+      renderWizardBackpack(el, wrap);
+    });
+  });
+  el.querySelectorAll("[data-genday]").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      svsDraft.values[`sp_general_use_${cb.dataset.genday}`] = cb.checked;
+      scheduleDraftAutosave();
+      renderWizardBackpack(el, wrap);
+    });
+  });
+  const genSplitCb = el.querySelector("[data-gensplit]");
+  if (genSplitCb) {
+    genSplitCb.addEventListener("change", () => {
+      svsDraft.values.sp_general_split_even = genSplitCb.checked;
+      scheduleDraftAutosave();
+      renderWizardBackpack(el, wrap);
+    });
+  }
+  el.querySelectorAll("[data-genalloc]").forEach((input) => {
+    const commitGenAlloc = () => {
+      svsDraft.values[`sp_general_alloc_${input.dataset.genalloc}`] = Number(input.value) || 0;
+      scheduleDraftAutosave();
+    };
+    input.addEventListener("input", commitGenAlloc);
+    input.addEventListener("change", () => {
+      commitGenAlloc();
       renderWizardBackpack(el, wrap);
     });
   });

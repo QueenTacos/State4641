@@ -167,7 +167,8 @@ function constructionOpportunityOpen(values) {
 
 function d1ConstructionPoints(mins, values) {
   if (!constructionOpportunityOpen(values)) return 0;
-  return (Number(mins) || 0) * 30;
+  const alloc = generalSpeedupAllocation(values);
+  return ((Number(mins) || 0) + alloc.d1) * 30;
 }
 
 function d1FireCrystalPoints(qty, values) {
@@ -178,8 +179,8 @@ function d1FireCrystalPoints(qty, values) {
 function constructionDayEligible(values) {
   if (!constructionOpportunityOpen(values)) return false;
   const own = Number(values?.d1_construction) || 0;
-  const wildcard = Number(values?.sp_general) || 0;
-  return own > 0 || wildcard > 0;
+  const alloc = generalSpeedupAllocation(values);
+  return own > 0 || alloc.d1 > 0;
 }
 
 // Research Day mirrors Construction Day: two independent "nothing left to
@@ -198,32 +199,94 @@ function researchOpportunityOpen(values) {
 
 function d2ResearchPoints(mins, values) {
   if (!researchOpportunityOpen(values)) return 0;
-  return (Number(mins) || 0) * 30;
+  const alloc = generalSpeedupAllocation(values);
+  return ((Number(mins) || 0) + alloc.d2) * 30;
 }
 
 function researchDayEligible(values) {
   if (!researchOpportunityOpen(values)) return false;
   const own = Number(values?.d2_research) || 0;
-  const wildcard = Number(values?.sp_general) || 0;
-  return own > 0 || wildcard > 0;
+  const alloc = generalSpeedupAllocation(values);
+  return own > 0 || alloc.d2 > 0;
 }
 
-// General/Expert-Skills speedups are wildcards — they can stand in for
-// Construction, Research, or Troop speedups. This suggests which day
-// currently has the most open opportunity for them, so the banner text
-// under each day can show e.g. "D2 — Research (300 mins of General
-// speedups suggested to use)".
-function generalSpeedupSuggestion(values) {
-  const general = Number(values?.sp_general) || 0;
-  if (general <= 0) return null;
-  const candidates = [
-    { day: "D1 — Construction", label: "D1 — Construction", ownMins: Number(values?.d1_construction) || 0, open: constructionOpportunityOpen(values) },
-    { day: "D2 — Research", label: "D2 — Research", ownMins: Number(values?.d2_research) || 0, open: researchOpportunityOpen(values) },
-    { day: "D4 — Troop", label: "D4 — Troop", ownMins: Number(values?.sp_troop_train) || 0, open: true },
-  ].filter((c) => c.open);
-  if (!candidates.length) return null;
-  candidates.sort((a, b) => a.ownMins - b.ownMins);
-  return { day: candidates[0].day, label: candidates[0].label, mins: general };
+// Troop Day speedups — mirrors d1ConstructionPoints/d2ResearchPoints, but
+// Troop Day has no "opportunity closed" gate (queue capacity never fully
+// maxes out the way Construction/Research can), so this always counts own
+// + allocated General minutes.
+function troopTrainPoints(mins, values) {
+  const alloc = generalSpeedupAllocation(values);
+  return ((Number(mins) || 0) + alloc.d3) * 30;
+}
+
+// ---------------------------------------------------------------------------
+// General Speedup Day Selection — General/Expert-Skill speedups are one
+// shared pool (values.sp_general) that a member explicitly allocates across
+// the 3 speedup-consuming days (Day 1 — Construction, Day 2 — Research,
+// Day 3 — Troop), either split evenly across the days they check, or by
+// typing an exact number of minutes per selected day. This function is the
+// single source of truth for that allocation — every place that needs "how
+// much General is this day actually getting" (the day's own point calc,
+// its eligibility check, and the day-selection panel's own UI) calls this
+// rather than re-deriving it, so they can never drift out of sync.
+//
+// Selection/mode live in three boolean fields (sp_general_use_d1/d2/d3) and
+// one mode flag (sp_general_split_even, default true); manual minutes live
+// in sp_general_alloc_d1/d2/d3. None of these are ever written back into
+// sp_general itself — the pool total is always read fresh from
+// values.sp_general, so nothing here can duplicate or lose track of it.
+//
+// "d1"/"d2"/"d3" are second-count no's for General allocation only, since
+// exactly 3 days ever take a speedup type (Construction, Research, Troop) —
+// they line up with d1_construction/d2_research/sp_troop_train in that
+// order, not with the D1-D5 bag-section numbering (Troop is bag section D4).
+function generalSpeedupAllocation(values) {
+  const total = Number(values?.sp_general) || 0;
+  const selected = ["d1", "d2", "d3"].filter((d) => !!values?.[`sp_general_use_${d}`]);
+  const splitEven = values?.sp_general_split_even !== false;
+  const raw = { d1: 0, d2: 0, d3: 0 };
+  if (total > 0 && selected.length) {
+    if (splitEven) {
+      // Even split that never loses or invents minutes: whole-minute base
+      // for every selected day, then the undivided remainder goes one
+      // minute at a time to the selected days in d1→d2→d3 order.
+      const base = Math.floor(total / selected.length);
+      let extra = total - base * selected.length;
+      selected.forEach((d) => {
+        raw[d] = base + (extra > 0 ? 1 : 0);
+        if (extra > 0) extra--;
+      });
+    } else {
+      selected.forEach((d) => {
+        raw[d] = Math.max(0, Number(values?.[`sp_general_alloc_${d}`]) || 0);
+      });
+    }
+  }
+  const rawAllocated = raw.d1 + raw.d2 + raw.d3;
+  // Effective allocation actually applied to scoring/eligibility — capped
+  // in d1→d2→d3 order so the combined total can never exceed the General
+  // Speedups the member actually owns, even if a manual entry momentarily
+  // adds up to more than the pool (the UI flags that state via
+  // overAllocated below; this is the scoring-side backstop for it).
+  const effective = { d1: 0, d2: 0, d3: 0 };
+  let budget = total;
+  ["d1", "d2", "d3"].forEach((d) => {
+    const take = Math.min(raw[d], budget);
+    effective[d] = take;
+    budget -= take;
+  });
+  return {
+    total,
+    selected,
+    splitEven,
+    d1: effective.d1,
+    d2: effective.d2,
+    d3: effective.d3,
+    allocated: effective.d1 + effective.d2 + effective.d3,
+    remaining: total - rawAllocated,
+    overAllocated: rawAllocated > total,
+    noneSelected: total > 0 && selected.length === 0,
+  };
 }
 
 // Base per-troop point value at each tier (used for BOTH newly-trained
@@ -254,7 +317,7 @@ const BAG_SECTIONS = [
       { key: "sp_construction", label: "Construction", unit: "min", rateNote: "Auto-fills into D1 — Construction Day below", points: null, syncTo: "d1_construction" },
       { key: "sp_research", label: "Research", unit: "min", rateNote: "Auto-fills into D2 — Research Day below", points: null, syncTo: "d2_research" },
       { key: "sp_troop", label: "Troop", unit: "min", rateNote: "Auto-fills into D4 — Troop Training below", points: null, syncTo: "sp_troop_train" },
-      { key: "sp_general", label: "General (Wildcard)", unit: "min", rateNote: "30 pts per min (General/Expert Skill speedups) — stands in for Construction, Research, or Troop speedups; spend where you have the best remaining opportunity (see the suggestion under each day)", points: 30, wildcard: true },
+      { key: "sp_general", label: "General (Wildcard)", unit: "min", rateNote: "30 pts per min (General/Expert Skill speedups) — allocate it across Day 1/2/3 below; it scores through whichever day(s) you assign it to, not on its own", points: null, wildcard: true },
     ],
   },
   {
@@ -300,7 +363,7 @@ const BAG_SECTIONS = [
       // Key kept as "sp_troop_train" (not renamed to a d4_ key) since
       // troopDayEligible() and the schedule's speedup-gate logic in app.js
       // key off this exact field name — only where it renders moved.
-      { key: "sp_troop_train", label: "Troop Train / Promotion Speedups", unit: "min", rateNote: "30 pts per min — also gates whether you can get a Troop Day time slot at all (see TIME SLOTS)", points: 30, standout: true, statusKey: "troop" },
+      { key: "sp_troop_train", label: "Troop Train / Promotion Speedups", unit: "min", rateNote: "30 pts per min — also gates whether you can get a Troop Day time slot at all (see TIME SLOTS)", calc: troopTrainPoints, standout: true, statusKey: "troop" },
       // Promotion points = the difference between what training a fresh
       // troop at the member's current tier grants vs. training one at
       // T10 outright — i.e. the credit for promoting an existing troop up
