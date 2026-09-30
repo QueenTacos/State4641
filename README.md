@@ -467,6 +467,47 @@ one function, `generalSpeedupAllocation` (`data.js`), so the day fields,
 the eligibility checks, and the panel itself can never drift out of sync
 with each other.
 
+### Scanning items from screenshots (SVS My Bag)
+
+Every section of the backpack (SPEEDUPS, D1–D5) has a **📷 SCAN** button
+next to its header, alongside its manual fields — manual entry always still
+works, scanning is entirely optional. Clicking it opens an upload modal:
+drop or choose up to 5 screenshots (JPG/PNG/WEBP, 10MB each), then **Scan**.
+The app reads the screenshots' text client-side with
+[Tesseract.js](https://github.com/naptha/tesseract.js) (the same OCR
+library the Alliance Championship lane planner's screenshot importer
+already used) and matches item names/aliases against a master reference
+library (`ITEM_IMAGE_LIBRARY` + `SCAN_SECTIONS`, both in `data.js`) scoped
+to that section only — a D5 scan can never touch D1/D2/D3/Troop/Speedup
+fields, even if those items happen to also appear somewhere in the
+screenshot.
+
+Nothing is written until you review and confirm: the **SCAN RESULTS**
+screen lists every detected field with its value, or **"Could not
+confidently read this value"** if the text was there but unclear — it never
+invents a number or treats "unclear" as zero. If a field already has a
+nonzero value and the scan found a different one, you get an explicit
+**Keep Current / Use Scanned** choice per field; nothing is silently
+overwritten. Only **Apply Values** actually writes into your bag (the exact
+same `svsDraft.values` manual entry uses) — General Speedups scanned from a
+screenshot only ever update the **total** General Speedups field, never the
+Day 1/2/3 selection or Split Evenly allocation above, which stays exactly
+as you set it.
+
+The reference image library ships with icons for every current item except
+the nine promotable troop tiers (T1–T9) and the Hero Exclusive Gear Widget
+— no reliable source image exists for those yet, so they stay scannable by
+name/label text (troop tiers) or manual-only (widgets) rather than guessing
+with the wrong picture. See `item-images.js` for the full list.
+
+**Screenshot / Proof (optional)**, at the bottom of every section, is a
+completely separate feature — it stores an evidence screenshot for alliance
+leadership to review later, and never scans it, never changes any score,
+never touches a form field. It needs Supabase configured (see "Going
+multi-user" below) with the `svs-submission-screenshots` Storage bucket
+from `schema.sql`; without that, the button is disabled with an explanatory
+tooltip rather than silently failing.
+
 ### Construction Day (D1) and Research Day (D2) gates
 
 Both days can run out of things to spend speedups on, same as Troop Day
@@ -826,8 +867,12 @@ explanatory message until `SUPABASE_CONFIG` is filled in.
    sidebar, **New query**, paste in the contents of `schema.sql` from this
    project, and **Run**. This creates the `app_state` table, sets up Row
    Level Security policies (open read/write — see the comments in that
-   file for the tradeoff and how to lock it down further), and turns on
-   realtime for the table.
+   file for the tradeoff and how to lock it down further), turns on
+   realtime for the table, AND creates the private
+   `svs-submission-screenshots` Storage bucket + policies the SVS My Bag
+   "Screenshot / Proof" uploads use (see "Scanning items from screenshots"
+   above) — all in the one script, so there's nothing extra to set up for
+   that feature specifically.
 3. Open **Project Settings -> API**. Copy the **Project URL** and the
    **anon public** key (not the `service_role` key — that one must never
    ship in a public site).

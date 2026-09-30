@@ -24,6 +24,8 @@ if m:
     font_link = f'<link rel="stylesheet" href="{m.group(2)}">'
     css = css[: m.start()] + css[m.end() :]
 
+with open("item-images.js") as f:
+    item_images_js = f.read()
 with open("data.js") as f:
     data_js = f.read()
 with open("i18n.js") as f:
@@ -42,6 +44,21 @@ out = f"""<title>{TITLE}</title>
 </style>
 <div id="shell"></div>
 
+<!-- The OCR engine behind the Alliance Championship screenshot importer AND
+     the SVS My Bag section Scan buttons (see ITEM_IMAGE_LIBRARY/
+     SCAN_SECTIONS in data.js) — added here so scanning also works from this
+     published preview, not only once deployed. Pure client-side image/text
+     processing, no network calls beyond fetching this one script, so it's
+     safe to add. Deliberately NOT adding the Supabase script here too: this
+     preview is meant to stay an isolated, localStorage-only demo per
+     viewer — loading supabase-js would make it start reading/writing the
+     real shared backend (SUPABASE_CONFIG) from anyone who opens this link,
+     which is a bigger behavior change than "add a scan button" and out of
+     scope for this change. Proof screenshot uploads (which need Supabase
+     Storage) correctly show as unavailable in this preview as a result —
+     same as every other Supabase-only feature already does here. -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
 <!-- Used only by the embedded Bear Squad Calculator ("/bears" route). React
      itself has no build step here, so Babel standalone transforms
      bear-calculator.js's JSX to plain JS right in the browser at load
@@ -53,6 +70,11 @@ out = f"""<title>{TITLE}</title>
 {bear_calc_js}
 </script>
 
+<!-- Master reference-image library for SVS item scanning — loaded before
+     data.js, same as index.html. -->
+<script>
+{item_images_js}
+</script>
 <script>
 {data_js}
 </script>

@@ -1117,6 +1117,241 @@ let svsDay = SEED_SCHEDULE_DAYS[0];
 let svsWizardStep = "backpack";
 let svsWizardDayTab = SEED_SCHEDULE_DAYS[0];
 let svsDraft = null;
+
+// ---------------------------------------------------------------------------
+// SVS ITEM SCANNING — section-scoped Scan buttons on the My Bag wizard.
+// Entirely additive to the wizard above: it only ever writes into
+// svsDraft.values (the SAME data model the manual fields already use), and
+// only after the member reviews and confirms the detected values. See
+// ITEM_IMAGE_LIBRARY / SCAN_SECTIONS / parseItemScanOcrText in data.js for
+// the reusable library + section config + OCR text parser this UI drives.
+//
+// Built as a self-contained overlay (same document.createElement +
+// document.body.appendChild pattern as openSignIn/openAdd* elsewhere in
+// this file — see e.g. openSignIn above), not as part of the
+// renderWizardBackpack() state tree, so picking files or scanning never
+// fights with that wizard's own re-renders. It only touches svsDraft.values
+// at the very end, when the member clicks "Apply Values" — see
+// applyItemScanResults below.
+// ---------------------------------------------------------------------------
+
+// SectionScanButton — the small "SCAN" control this file adds to each of
+// the 6 BAG_SECTIONS headers (see renderWizardBackpack). Deliberately
+// plain/compact — this app has no pre-existing "Hero Scan" button to match
+// (checked: no such feature exists anywhere in this codebase today), so
+// this mirrors the app's general small-button styling instead.
+function sectionScanButtonHtml(sectionTitle) {
+  if (!SCAN_SECTIONS[sectionTitle]) return "";
+  return `<button type="button" class="btn small" data-scan-section="${escapeHtml(sectionTitle)}" style="margin-left:auto;">📷 SCAN</button>`;
+}
+
+function openItemScanModal(sectionTitle, wizardBodyEl, wrapEl) {
+  const config = SCAN_SECTIONS[sectionTitle];
+  if (!config) return;
+  const state = { sectionTitle, phase: "upload", files: [], results: null, choices: {} };
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  document.body.appendChild(overlay);
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  function render() {
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:560px;">
+        <button class="close">&times;</button>
+        <h3>SCAN ${escapeHtml(sectionTitle.toUpperCase())}</h3>
+        ${state.phase === "upload" ? uploadPhaseHtml() : ""}
+        ${state.phase === "scanning" ? scanningPhaseHtml() : ""}
+        ${state.phase === "review" ? reviewPhaseHtml() : ""}
+      </div>
+    `;
+    overlay.querySelector(".close").onclick = () => overlay.remove();
+    wire();
+  }
+
+  function uploadPhaseHtml() {
+    return `
+      <p style="font-size:12px;color:var(--text-dim);margin:0 0 10px;">Upload one or more screenshots showing the resources for this section. JPG, PNG, or WEBP — up to 5 screenshots, 10MB each.</p>
+      <div id="scanDropZone" style="border:2px dashed var(--border, #333);border-radius:10px;padding:18px;text-align:center;cursor:pointer;">
+        <div style="font-size:12px;color:var(--text-dim);">Drag &amp; drop screenshots here, or</div>
+        <button type="button" class="btn small" id="scanPickFiles" style="margin-top:8px;">Choose Files</button>
+        <input type="file" id="scanFileInput" accept="image/jpeg,image/jpg,image/png,image/webp" multiple style="display:none;" />
+      </div>
+      ${state.files.length ? `
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;">
+          ${state.files
+            .map(
+              (f, i) => `
+            <div style="position:relative;width:76px;">
+              <img src="${f.previewUrl}" style="width:76px;height:76px;object-fit:cover;border-radius:8px;border:1px solid var(--border,#333);" />
+              <button type="button" class="btn small" data-remove-scan-file="${i}" style="position:absolute;top:-8px;right:-8px;width:22px;height:22px;padding:0;line-height:1;border-radius:50%;">&times;</button>
+              <div style="font-size:9.5px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${escapeHtml(f.file.name)}</div>
+            </div>`
+            )
+            .join("")}
+          ${state.files.length < 5 ? `<button type="button" class="btn small" id="scanAddAnother" style="align-self:flex-start;">+ Add Another</button>` : ""}
+        </div>
+      ` : ""}
+      ${state.errorMsg ? `<p style="font-size:11.5px;color:var(--accent-red);margin:10px 0 0;">${escapeHtml(state.errorMsg)}</p>` : ""}
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button type="button" class="btn" id="scanCancel">Cancel</button>
+        <button type="button" class="btn primary" id="scanGo" ${state.files.length ? "" : "disabled"} style="flex:1;">Scan ${state.files.length || ""} Screenshot${state.files.length === 1 ? "" : "s"}</button>
+      </div>
+    `;
+  }
+
+  function scanningPhaseHtml() {
+    return `<p style="font-size:13px;color:var(--text-dim);margin:20px 0;">${escapeHtml(state.status || "Reading screenshots…")}</p>`;
+  }
+
+  function reviewPhaseHtml() {
+    const items = config.items
+      .map((it) => it.fieldKey)
+      .filter((v, i, arr) => arr.indexOf(v) === i) // sp_general appears twice (GENERAL_SPEEDUP + EXPERT_SKILL_SPEEDUP) -> one row
+      .map((fieldKey) => ({ fieldKey, res: state.results[fieldKey], field: bagFieldInfo(fieldKey) }))
+      .filter((row) => row.res); // only fields actually seen in at least one screenshot
+    return `
+      <p style="font-size:12px;color:var(--text-dim);margin:0 0 10px;">Review the detected values below before they're applied. Nothing is saved yet.</p>
+      ${
+        items.length === 0
+          ? `<p style="font-size:12.5px;color:var(--accent-amber);">No supported items were found in ${state.files.length === 1 ? "that screenshot" : "those screenshots"}. Try a clearer or more complete screenshot, or enter values manually below.</p>`
+          : `<div style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;">
+        ${items
+          .map(({ fieldKey, res, field }) => {
+            const currentVal = svsDraft.values[fieldKey] || 0;
+            const hasConflict = res.confident && currentVal > 0 && currentVal !== res.value;
+            const choice = state.choices[fieldKey] || "scanned";
+            return `
+            <div style="border:1px solid var(--border,#333);border-radius:8px;padding:10px 12px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <strong style="font-size:12.5px;">${escapeHtml(field ? field.label : res.label)}</strong>
+                <span style="font-size:12.5px;color:${res.confident ? "var(--text)" : "var(--accent-amber)"};">
+                  ${res.confident ? fmtNum(res.value) + (field?.unit ? " " + field.unit : "") : "Could not confidently read this value."}
+                </span>
+              </div>
+              ${
+                hasConflict
+                  ? `<div style="display:flex;gap:6px;margin-top:8px;">
+                  <button type="button" class="btn small${choice === "current" ? " primary" : ""}" data-scan-choice="${fieldKey}" data-choice-value="current">Keep Current (${fmtNum(currentVal)})</button>
+                  <button type="button" class="btn small${choice === "scanned" ? " primary" : ""}" data-scan-choice="${fieldKey}" data-choice-value="scanned">Use Scanned (${fmtNum(res.value)})</button>
+                </div>`
+                  : ""
+              }
+            </div>`;
+          })
+          .join("")}
+      </div>`
+      }
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button type="button" class="btn" id="scanReviewCancel">Cancel</button>
+        <button type="button" class="btn primary" id="scanApply" style="flex:1;" ${items.some((r) => r.res.confident) ? "" : "disabled"}>Apply Values</button>
+      </div>
+    `;
+  }
+
+  function addFiles(fileList) {
+    const incoming = Array.from(fileList || []);
+    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    for (const file of incoming) {
+      if (state.files.length >= 5) { state.errorMsg = "You can upload up to 5 screenshots at a time."; break; }
+      if (!allowed.includes(file.type)) { state.errorMsg = `"${file.name}" isn't a supported image type (JPG/PNG/WEBP only).`; continue; }
+      if (file.size > 10 * 1024 * 1024) { state.errorMsg = `"${file.name}" is over the 10MB limit.`; continue; }
+      if (state.files.some((f) => f.file.name === file.name && f.file.size === file.size)) { state.errorMsg = `"${file.name}" was already added.`; continue; }
+      state.files.push({ file, previewUrl: URL.createObjectURL(file) });
+      state.errorMsg = "";
+    }
+    render();
+  }
+
+  async function runScan() {
+    state.phase = "scanning";
+    render();
+    if (typeof Tesseract === "undefined") {
+      state.status = "OCR library failed to load — check your internet connection and try again.";
+      state.phase = "upload";
+      state.errorMsg = "OCR library failed to load — check your internet connection and try again.";
+      render();
+      return;
+    }
+    let combined = {};
+    try {
+      for (let i = 0; i < state.files.length; i++) {
+        state.status = `Reading screenshot ${i + 1} of ${state.files.length}…`;
+        render();
+        const { data } = await Tesseract.recognize(state.files[i].file, "eng");
+        const found = parseItemScanOcrText(data.text, sectionTitle);
+        mergeScanResults(combined, found);
+      }
+    } catch (err) {
+      console.error("Item scan OCR failed:", err);
+      state.phase = "upload";
+      state.errorMsg = "Couldn't read one of those screenshots — try a clearer image, or enter values manually below.";
+      render();
+      return;
+    }
+    state.results = combined;
+    // Pre-seed Keep Current/Use Scanned choices — default to "scanned" but
+    // never silently overwrite: the review screen (§22) always shows both
+    // options when there's a real conflict, this is just the button state.
+    state.choices = {};
+    state.phase = "review";
+    render();
+  }
+
+  function applyResults() {
+    let appliedCount = 0;
+    for (const [fieldKey, res] of Object.entries(state.results)) {
+      if (!res.confident) continue; // never write an unclear/guessed value
+      const currentVal = svsDraft.values[fieldKey] || 0;
+      const hasConflict = currentVal > 0 && currentVal !== res.value;
+      const choice = state.choices[fieldKey] || "scanned";
+      if (hasConflict && choice === "current") continue; // explicit Keep Current
+      svsDraft.values[fieldKey] = res.value;
+      // sp_construction/sp_research/sp_troop mirror into their D-day field
+      // exactly like manual entry does (see the `syncTo` field wiring in
+      // renderWizardBackpack) — keep that behavior for scanned values too.
+      const field = BAG_SECTIONS.flatMap((s) => s.fields).find((f) => f.key === fieldKey);
+      if (field?.syncTo) svsDraft.values[field.syncTo] = res.value;
+      appliedCount++;
+    }
+    scheduleDraftAutosave();
+    overlay.remove();
+    if (wizardBodyEl && document.body.contains(wizardBodyEl)) renderWizardBackpack(wizardBodyEl, wrapEl);
+    else refreshSvS();
+  }
+
+  function wire() {
+    const dropZone = overlay.querySelector("#scanDropZone");
+    const fileInput = overlay.querySelector("#scanFileInput");
+    overlay.querySelector("#scanPickFiles")?.addEventListener("click", () => fileInput.click());
+    overlay.querySelector("#scanAddAnother")?.addEventListener("click", () => fileInput.click());
+    fileInput?.addEventListener("change", () => addFiles(fileInput.files));
+    if (dropZone) {
+      ["dragover", "dragenter"].forEach((evt) => dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.style.borderColor = "var(--accent-purple)"; }));
+      ["dragleave", "drop"].forEach((evt) => dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.style.borderColor = ""; }));
+      dropZone.addEventListener("drop", (e) => { if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); });
+    }
+    overlay.querySelectorAll("[data-remove-scan-file]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.removeScanFile);
+        state.files.splice(idx, 1);
+        render();
+      });
+    });
+    overlay.querySelector("#scanCancel")?.addEventListener("click", () => overlay.remove());
+    overlay.querySelector("#scanReviewCancel")?.addEventListener("click", () => overlay.remove());
+    overlay.querySelector("#scanGo")?.addEventListener("click", runScan);
+    overlay.querySelector("#scanApply")?.addEventListener("click", applyResults);
+    overlay.querySelectorAll("[data-scan-choice]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.choices[btn.dataset.scanChoice] = btn.dataset.choiceValue;
+        render();
+      });
+    });
+  }
+
+  render();
+}
 // The EXPORT DAY overlay's own filters — { day, range: "full"|"first"|"second",
 // alliance: "" | tag }. Null when the overlay is closed.
 let exportModalState = null;
@@ -1655,6 +1890,7 @@ function generalSpeedupPanelHtml(values) {
     </div>`;
   return `
     <div class="rate" style="margin:14px 0 6px;letter-spacing:.5px;font-size:10.5px;color:var(--text-faint);">USE GENERAL SPEEDUPS ON</div>
+    <p style="font-size:11px;color:var(--text-faint);margin:0 0 10px;line-height:1.5;">Select the day(s) you want to use your General Speedups on. Check Split Evenly to divide them equally across the selected days, or leave it unchecked to enter a custom amount for each day. Your total allocation cannot exceed your available General Speedups.</p>
     <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px;">
       ${dayMeta.map(dayCheckboxHtml).join("")}
     </div>
@@ -1670,11 +1906,80 @@ function generalSpeedupPanelHtml(values) {
   `;
 }
 
+// SCREENSHOT / PROOF (OPTIONAL) — completely separate from the Scan feature
+// above. Stores evidence only (via uploadSvsProofScreenshot/data.js, backed
+// by private Supabase Storage): never scans, never touches scoring, never
+// writes into svsDraft.values. Rendered at the bottom of every BAG_SECTIONS
+// section, per §25-§26 of the spec.
+function proofUploadBlockHtml(sectionTitle, targetUser) {
+  const uploads = targetUser ? svsProofUploadsFor(targetUser.id, sectionTitle) : [];
+  const available = svsProofStorageAvailable();
+  return `
+    <div style="margin-top:10px;padding:12px 14px;border:1px dashed var(--border,rgba(255,255,255,.15));border-radius:8px;">
+      <div style="font-size:10.5px;letter-spacing:1px;color:var(--text-faint);font-weight:600;margin-bottom:4px;">SCREENSHOT / PROOF (OPTIONAL)</div>
+      <p style="font-size:11px;color:var(--text-faint);margin:0 0 8px;">Optional: upload a screenshot showing the values entered above. This can help alliance leadership verify your submission.</p>
+      <input type="file" data-proof-input="${escapeHtml(sectionTitle)}" accept="image/jpeg,image/jpg,image/png,image/webp" style="display:none;" />
+      <button type="button" class="btn small" data-proof-upload-btn="${escapeHtml(sectionTitle)}" ${available ? "" : "disabled"} title="${available ? "" : "Screenshot storage isn't configured for this deployment yet."}">Upload Screenshot</button>
+      <span data-proof-status="${escapeHtml(sectionTitle)}" style="font-size:11px;color:var(--text-dim);margin-left:8px;"></span>
+      ${
+        uploads.length
+          ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+        ${uploads
+          .map(
+            (u) => `
+          <div style="font-size:10.5px;color:var(--text-dim);background:rgba(255,255,255,.04);padding:4px 8px;border-radius:6px;display:flex;align-items:center;gap:6px;">
+            ${escapeHtml(u.fileName)}
+            <button type="button" class="btn small" data-proof-delete="${u.id}" style="padding:0 4px;line-height:1;">&times;</button>
+          </div>`
+          )
+          .join("")}
+      </div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function wireProofUploadBlocks(el, targetUser, rerender) {
+  el.querySelectorAll("[data-proof-upload-btn]").forEach((btn) => {
+    const sectionTitle = btn.dataset.proofUploadBtn;
+    const input = el.querySelector(`[data-proof-input="${CSS.escape(sectionTitle)}"]`);
+    btn.addEventListener("click", () => input?.click());
+    input?.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file || !targetUser) return;
+      const statusEl = el.querySelector(`[data-proof-status="${CSS.escape(sectionTitle)}"]`);
+      if (statusEl) statusEl.textContent = "Uploading…";
+      const result = await uploadSvsProofScreenshot(file, {
+        userId: targetUser.id,
+        allianceId: targetUser.alliance || null,
+        eventId: null,
+        sectionKey: sectionTitle,
+      });
+      if (!result.ok) {
+        if (statusEl) statusEl.textContent = result.reason === "not_configured" ? "Screenshot storage isn't configured for this deployment yet." : "Upload failed — try again.";
+        return;
+      }
+      rerender();
+    });
+  });
+  el.querySelectorAll("[data-proof-delete]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await deleteSvsProofScreenshot(btn.dataset.proofDelete);
+      rerender();
+    });
+  });
+}
+
 function renderWizardBackpack(el, wrap) {
+  const scanTargetUser = svsWizardTargetUser();
   el.innerHTML = `
     ${BAG_SECTIONS.map(
       (section) => `
-      <div class="section-title">${section.title}</div>
+      <div class="section-title" style="display:flex;align-items:center;gap:10px;">
+        <span>${section.title}</span>
+        ${sectionScanButtonHtml(section.title)}
+      </div>
       ${
         section.title === "SPEEDUPS"
           ? `<p style="font-size:11.5px;color:var(--text-dim);margin:-4px 0 12px;">Enter what you have banked — Construction, Research, and Troop auto-fill into their matching day below. <strong style="color:var(--text);">General</strong> is a wildcard: allocate it across Day 1/2/3 below and it scores through whichever day(s) you assign it to.</p>`
@@ -1725,10 +2030,15 @@ function renderWizardBackpack(el, wrap) {
           })
           .join("")}
       </div>
-      ${section.title === "SPEEDUPS" ? generalSpeedupPanelHtml(svsDraft.values) : ""}`
+      ${section.title === "SPEEDUPS" ? generalSpeedupPanelHtml(svsDraft.values) : ""}
+      ${proofUploadBlockHtml(section.title, scanTargetUser)}`
     ).join("")}
     <button class="btn primary" id="wizNext" style="margin-top:6px;">NEXT → REVIEW POINTS</button>
   `;
+  el.querySelectorAll("[data-scan-section]").forEach((btn) => {
+    btn.addEventListener("click", () => openItemScanModal(btn.dataset.scanSection, el, wrap));
+  });
+  wireProofUploadBlocks(el, scanTargetUser, () => renderWizardBackpack(el, wrap));
   el.querySelectorAll("[data-toggle]").forEach((btn) => {
     btn.addEventListener("click", () => {
       svsDraft.values[btn.dataset.toggle] = !svsDraft.values[btn.dataset.toggle];

@@ -17,7 +17,10 @@
   <!-- Used only by the Alliance Championship planner's "Upload Screenshots"
        step, to read player names/power directly off screenshots in the
        browser (no server involved). Harmless to load if that feature is
-       never used. -->
+       never used. ALSO used by the SVS My Bag section Scan buttons (see
+       ITEM_IMAGE_LIBRARY/SCAN_SECTIONS in data.js) — same library, same
+       "never guess, flag unclear" pattern, applied to item name + quantity
+       pairs instead of player name + power pairs. -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
   <!-- Used only by the embedded Bear Squad Calculator ("/bears" route —
@@ -30,6 +33,10 @@
   <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
   <script type="text/babel" data-presets="react" src="bear-calculator.js"></script>
 
+  <!-- Master reference-image library for SVS item scanning (see
+       ITEM_IMAGE_LIBRARY in data.js) — small base64-embedded WebP icons,
+       loaded before data.js the same way card-art.js's embedded art is. -->
+  <script src="item-images.js"></script>
   <script src="data.js"></script>
   <script src="i18n.js"></script>
   <script src="card-art.js"></script>

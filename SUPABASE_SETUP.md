@@ -127,6 +127,28 @@ create policy "app_state anyone can update" on app_state
 -- manual reload. Equivalent to toggling Database -> Replication ->
 -- supabase_realtime for this table in the dashboard UI.
 alter publication supabase_realtime add table app_state;
+
+-- --- Storage: SVS Screenshot/Proof uploads ---------------------------------
+-- The ONE Storage bucket this app uses — for player-uploaded evidence
+-- screenshots on the SVS My Bag "Screenshot / Proof" feature
+-- (uploadSvsProofScreenshot in data.js). Completely separate from the
+-- item-image reference library (item-images.js, shipped with the app's own
+-- code — never uploaded anywhere). Created PRIVATE: no public URL exists
+-- for any file in it; viewing one requires a short-lived signed URL the
+-- app generates (svsProofSignedUrl in data.js). Same anon-key trust model
+-- as app_state above — see that section's comment for the tradeoff.
+insert into storage.buckets (id, name, public)
+values ('svs-submission-screenshots', 'svs-submission-screenshots', false)
+on conflict (id) do nothing;
+
+create policy "svs proof screenshots anyone can upload" on storage.objects
+  for insert with check (bucket_id = 'svs-submission-screenshots');
+
+create policy "svs proof screenshots anyone can read" on storage.objects
+  for select using (bucket_id = 'svs-submission-screenshots');
+
+create policy "svs proof screenshots anyone can delete" on storage.objects
+  for delete using (bucket_id = 'svs-submission-screenshots');
 ```
 
 ---
@@ -166,11 +188,15 @@ one, answered directly:
   unrelated to Supabase. See `README.md` → "Sign-in" for that design and its
   trade-offs (it is unchanged from State 3929, per your "keep functionality
   identical" instruction).
-- **Storage buckets and storage policies** — none. No file/image upload ever
-  reaches Supabase Storage — the Alliance Championship screenshot tool
-  (Tesseract.js OCR) and all card artwork run/live entirely client-side
-  (`card-art.js` ships the artwork inline as the app's own asset, not
-  user-uploaded).
+- **Storage buckets and storage policies** — one private bucket,
+  `svs-submission-screenshots`, for player-uploaded evidence screenshots on
+  the SVS My Bag "Screenshot / Proof" feature (three policies: insert,
+  select, delete — given in full above). Everything else stays
+  client-side-only exactly as before: the Alliance Championship screenshot
+  tool and the SVS item Scan buttons both use Tesseract.js OCR entirely in
+  the browser (nothing they read is ever uploaded), and all card artwork /
+  item reference images ship inline as the app's own asset
+  (`card-art.js` / `item-images.js`), not user-uploaded.
 - **Realtime configuration** — one line, given above (`alter publication
   supabase_realtime add table app_state`), so all connected browsers see
   changes live.
@@ -193,7 +219,9 @@ one, answered directly:
 2. Once it finishes provisioning, open **SQL Editor** → **New query**, paste
    in the full script from section 2 above (or the contents of
    `supabase/migrations/0001_init.sql`), and **Run**. This creates the table,
-   turns on RLS with the three policies, and enables realtime.
+   turns on RLS with the three `app_state` policies, enables realtime, AND
+   creates the private `svs-submission-screenshots` Storage bucket + its
+   three policies — all in the one script.
 3. Open **Project Settings → API**. Copy the **Project URL** and the
    **`anon` `public`** key (never the `service_role` key — that one must
    never ship in a public site, and this app never asks for it).

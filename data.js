@@ -395,6 +395,344 @@ const BAG_SECTIONS = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// SVS item image library + scanning — ONE master reference source for every
+// resource item the SVS My Bag scanners can recognize (never a separate
+// image map hard-coded inside each scanner). Additive to everything above:
+// nothing in BAG_SECTIONS was renamed or restructured for this.
+//
+// Each entry: { name, category, aliases (lowercase text the OCR text-match
+// looks for, in addition to `name`), sections (which BAG_SECTIONS titles this
+// item can be scanned from — [] means "not part of the current form, kept
+// for future use") }. The actual reference image (if any) lives in the
+// separate item-images.js file as ITEM_IMAGES[key] — a small base64-embedded
+// WebP, the same self-contained-bundle approach card-art.js uses, so this
+// works identically in the real multi-file deployment and in the bundled
+// preview_v2.html. A key with no image (TROOP_T1-T9, HERO_WIDGET as of this
+// import) stays in the library with an empty `images` list rather than
+// borrowing another item's art — see itemImageUrls() below.
+// ---------------------------------------------------------------------------
+const ITEM_IMAGE_LIBRARY = {
+  // --- Speedups ---
+  GENERAL_SPEEDUP: { name: "General Speedup", category: "speedups", aliases: ["general speedup", "general speedups", "general spdup"], sections: ["SPEEDUPS"] },
+  CONSTRUCTION_SPEEDUP: { name: "Construction Speedup", category: "speedups", aliases: ["construction speedup", "construction speedups", "construction spdup"], sections: ["SPEEDUPS", "D1 — CONSTRUCTION DAY"] },
+  RESEARCH_SPEEDUP: { name: "Research Speedup", category: "speedups", aliases: ["research speedup", "research speedups", "research spdup"], sections: ["SPEEDUPS", "D2 — RESEARCH DAY"] },
+  TROOP_SPEEDUP: { name: "Troop Speedup", category: "speedups", aliases: ["troop speedup", "troop speedups", "troop train speedup", "training speedup"], sections: ["SPEEDUPS", "D4 — TROOP TRAINING"] },
+  EXPERT_SKILL_SPEEDUP: { name: "Expert Skill Speedup", category: "speedups", aliases: ["expert skill speedup", "expert skill speedups"], sections: ["SPEEDUPS"] },
+
+  // --- Day 1: Construction ---
+  FIRE_CRYSTAL: { name: "Fire Crystal", category: "construction", aliases: ["fire crystal", "fire crystals"], sections: ["D1 — CONSTRUCTION DAY"] },
+  CHARM_GUIDE: { name: "Charm Guide", category: "construction", aliases: ["charm guide", "charm guides"], sections: ["D1 — CONSTRUCTION DAY"] },
+  CHARM_DESIGN: { name: "Charm Design", category: "construction", aliases: ["charm design", "charm designs"], sections: ["D1 — CONSTRUCTION DAY"] },
+
+  // --- Day 2: Research ---
+  FIRE_CRYSTAL_SHARD: { name: "Fire Crystal Shard", category: "research", aliases: ["fire crystal shard", "fire crystal shards"], sections: ["D2 — RESEARCH DAY"] },
+  EXPERT_SIGIL: { name: "Expert Sigil", category: "research", aliases: ["expert sigil", "expert sigils"], sections: ["D2 — RESEARCH DAY"] },
+  BOOK_OF_KNOWLEDGE: { name: "Book of Knowledge", category: "research", aliases: ["book of knowledge", "books of knowledge"], sections: ["D2 — RESEARCH DAY"] },
+  RARE_HERO_SHARD: { name: "Rare Hero Shard", category: "research", aliases: ["rare hero shard", "rare hero shards"], sections: ["D2 — RESEARCH DAY"] },
+  EPIC_HERO_SHARD: { name: "Epic Hero Shard", category: "research", aliases: ["epic hero shard", "epic hero shards"], sections: ["D2 — RESEARCH DAY"] },
+  MYTHIC_HERO_SHARD: { name: "Mythic Hero Shard", category: "research", aliases: ["mythic hero shard", "mythic hero shards"], sections: ["D2 — RESEARCH DAY"] },
+
+  // --- Day 3: Beast Slay ---
+  STAMINA_CAN: { name: "Stamina Can", category: "beast", aliases: ["stamina can", "stamina cans"], sections: ["D3 — BEAST SLAY"] },
+  GEMS: { name: "Gems", category: "beast", aliases: ["gems", "gem"], sections: ["D3 — BEAST SLAY"] },
+
+  // --- Day 4: Troop Training — no reference image exists for any troop
+  // tier yet (none were in the imported ZIP); kept in the library so the
+  // form's Scan button can still show these as "no image yet" rather than
+  // silently omitting them, per the "never invent/substitute" rule.
+  TROOP_T1: { name: "T1 Troop", category: "troops", aliases: ["t1 troop", "tier 1 troop"], sections: ["D4 — TROOP TRAINING"] },
+  TROOP_T2: { name: "T2 Troop", category: "troops", aliases: ["t2 troop", "tier 2 troop"], sections: ["D4 — TROOP TRAINING"] },
+  TROOP_T3: { name: "T3 Troop", category: "troops", aliases: ["t3 troop", "tier 3 troop"], sections: ["D4 — TROOP TRAINING"] },
+  TROOP_T4: { name: "T4 Troop", category: "troops", aliases: ["t4 troop", "tier 4 troop"], sections: ["D4 — TROOP TRAINING"] },
+  TROOP_T5: { name: "T5 Troop", category: "troops", aliases: ["t5 troop", "tier 5 troop"], sections: ["D4 — TROOP TRAINING"] },
+  TROOP_T6: { name: "T6 Troop", category: "troops", aliases: ["t6 troop", "tier 6 troop"], sections: ["D4 — TROOP TRAINING"] },
+  TROOP_T7: { name: "T7 Troop", category: "troops", aliases: ["t7 troop", "tier 7 troop"], sections: ["D4 — TROOP TRAINING"] },
+  TROOP_T8: { name: "T8 Troop", category: "troops", aliases: ["t8 troop", "tier 8 troop"], sections: ["D4 — TROOP TRAINING"] },
+  TROOP_T9: { name: "T9 Troop", category: "troops", aliases: ["t9 troop", "tier 9 troop"], sections: ["D4 — TROOP TRAINING"] },
+
+  // --- Day 5: Hero / Power — HERO_WIDGET has no reliable reference image
+  // (the only widget-related file in the import was a generic marketing
+  // graphic, not an in-game icon, so it was left out rather than used as a
+  // wrong substitute).
+  ADVANCED_WILD_MARK: { name: "Advanced Wild Mark", category: "hero-power", aliases: ["advanced wild mark", "adv wild mark", "adv wild marks"], sections: ["D5 — HERO / POWER"] },
+  COMMON_WILD_MARK: { name: "Common Wild Mark", category: "hero-power", aliases: ["common wild mark", "common wild marks"], sections: ["D5 — HERO / POWER"] },
+  MITHRIL: { name: "Mithril", category: "hero-power", aliases: ["mithril"], sections: ["D5 — HERO / POWER"] },
+  ESSENCE_STONE: { name: "Hero Gear Essence Stone", category: "hero-power", aliases: ["essence stone", "essence stones", "hero gear essence stone"], sections: ["D5 — HERO / POWER"] },
+  HERO_WIDGET: { name: "Hero Exclusive Gear Widget", category: "hero-power", aliases: ["hero exclusive gear widget", "gear widget", "widget"], sections: ["D5 — HERO / POWER"] },
+  DESIGN_PLAN: { name: "Design Plan", category: "hero-power", aliases: ["design plan", "design plans"], sections: ["D5 — HERO / POWER"] },
+  POLISHING_SOLUTION: { name: "Polishing Solution", category: "hero-power", aliases: ["polishing solution", "polishing solutions"], sections: ["D5 — HERO / POWER"] },
+  HARDENED_ALLOY: { name: "Hardened Alloy", category: "hero-power", aliases: ["hardened alloy", "hardened alloys"], sections: ["D5 — HERO / POWER"] },
+
+  // --- Extra / future — not wired into any current form field; kept for
+  // when a future request adds them, per "don't force unused resources
+  // into the current form, but keep them available".
+  HERO_XP: { name: "Hero EXP", category: "misc", aliases: ["hero exp", "hero xp"], sections: [] },
+  ENERGIZING_POTION: { name: "Energizing Potion", category: "misc", aliases: ["energizing potion", "energizing potions"], sections: [] },
+  PET_FOOD: { name: "Pet Food", category: "misc", aliases: ["pet food"], sections: [] },
+  STRENGTHENING_SERUM: { name: "Strengthening Serum", category: "misc", aliases: ["strengthening serum", "strengthening serums"], sections: [] },
+  TAMING_MANUAL: { name: "Taming Manual", category: "misc", aliases: ["taming manual", "taming manuals", "taming"], sections: [] },
+};
+
+// Looks up an item's reference image(s) — never hard-codes a substitute
+// when one is missing (TROOP_T1-T9, HERO_WIDGET today). ITEM_IMAGES lives in
+// item-images.js (loaded before this file); typeof-guarded so this file
+// still works standalone (e.g. in a test harness) if that script isn't
+// present.
+function itemImageUrls(itemKey) {
+  const map = typeof ITEM_IMAGES !== "undefined" ? ITEM_IMAGES : {};
+  return map[itemKey] ? [map[itemKey]] : [];
+}
+
+// One reusable master item reference — every scanner below reads from this,
+// never a per-scanner image/alias map of its own.
+function itemImageLibraryEntry(itemKey) {
+  const def = ITEM_IMAGE_LIBRARY[itemKey];
+  if (!def) return null;
+  return { key: itemKey, ...def, images: itemImageUrls(itemKey) };
+}
+
+// ---------------------------------------------------------------------------
+// SVS item scanning — which items each BAG_SECTIONS section's Scan button
+// looks for, and which existing form field each one writes into. Section
+// keys are the exact BAG_SECTIONS `title` strings, so this never drifts out
+// of sync with the form itself. Deliberately narrow per section (§16 of the
+// spec: a D5 scan must never touch Fire Crystals/Research/Troop/Speedup
+// allocation) — each entry here is scoped to only its own section's fields.
+//
+// IMPORTANT: GENERAL_SPEEDUP and EXPERT_SKILL_SPEEDUP both write to the same
+// `sp_general` TOTAL field — scanning never touches
+// sp_general_use_d1/d2/d3 or sp_general_alloc_* (the existing Day 1/2/3 +
+// Split Evenly allocation from generalSpeedupPanelHtml), so a General
+// Speedups scan can never auto-distribute across days.
+// ---------------------------------------------------------------------------
+const SCAN_SECTIONS = {
+  "SPEEDUPS": {
+    items: [
+      { itemKey: "GENERAL_SPEEDUP", fieldKey: "sp_general" },
+      { itemKey: "EXPERT_SKILL_SPEEDUP", fieldKey: "sp_general" },
+      { itemKey: "CONSTRUCTION_SPEEDUP", fieldKey: "sp_construction" },
+      { itemKey: "RESEARCH_SPEEDUP", fieldKey: "sp_research" },
+      { itemKey: "TROOP_SPEEDUP", fieldKey: "sp_troop" },
+    ],
+  },
+  "D1 — CONSTRUCTION DAY": {
+    items: [
+      { itemKey: "CONSTRUCTION_SPEEDUP", fieldKey: "d1_construction" },
+      { itemKey: "FIRE_CRYSTAL", fieldKey: "d1_fire_crystals" },
+      { itemKey: "CHARM_GUIDE", fieldKey: "d1_charm_guide" },
+      { itemKey: "CHARM_DESIGN", fieldKey: "d1_charm_design" },
+    ],
+  },
+  "D2 — RESEARCH DAY": {
+    items: [
+      { itemKey: "RESEARCH_SPEEDUP", fieldKey: "d2_research" },
+      { itemKey: "FIRE_CRYSTAL_SHARD", fieldKey: "d2_fire_crystal_shards" },
+      { itemKey: "EXPERT_SIGIL", fieldKey: "d2_expert_sigils" },
+      { itemKey: "BOOK_OF_KNOWLEDGE", fieldKey: "d2_books_of_knowledge" },
+      { itemKey: "RARE_HERO_SHARD", fieldKey: "d2_hero_rare_shards" },
+      { itemKey: "EPIC_HERO_SHARD", fieldKey: "d2_hero_epic_shards" },
+      { itemKey: "MYTHIC_HERO_SHARD", fieldKey: "d2_hero_mythic_shards" },
+    ],
+  },
+  "D3 — BEAST SLAY": {
+    items: [
+      { itemKey: "STAMINA_CAN", fieldKey: "d3_stamina_cans" },
+      { itemKey: "GEMS", fieldKey: "d3_lucky_wheels" },
+    ],
+  },
+  "D4 — TROOP TRAINING": {
+    items: [
+      { itemKey: "TROOP_SPEEDUP", fieldKey: "sp_troop_train" },
+      { itemKey: "TROOP_T1", fieldKey: "d4_t1" },
+      { itemKey: "TROOP_T2", fieldKey: "d4_t2" },
+      { itemKey: "TROOP_T3", fieldKey: "d4_t3" },
+      { itemKey: "TROOP_T4", fieldKey: "d4_t4" },
+      { itemKey: "TROOP_T5", fieldKey: "d4_t5" },
+      { itemKey: "TROOP_T6", fieldKey: "d4_t6" },
+      { itemKey: "TROOP_T7", fieldKey: "d4_t7" },
+      { itemKey: "TROOP_T8", fieldKey: "d4_t8" },
+      { itemKey: "TROOP_T9", fieldKey: "d4_t9" },
+    ],
+  },
+  "D5 — HERO / POWER": {
+    items: [
+      { itemKey: "ADVANCED_WILD_MARK", fieldKey: "d5_adv_wild_marks" },
+      { itemKey: "COMMON_WILD_MARK", fieldKey: "d5_common_wild_marks" },
+      { itemKey: "MITHRIL", fieldKey: "d5_mithril" },
+      { itemKey: "ESSENCE_STONE", fieldKey: "d5_essence_stones" },
+      { itemKey: "HERO_WIDGET", fieldKey: "d5_widgets" },
+      { itemKey: "DESIGN_PLAN", fieldKey: "d5_design_plans" },
+      { itemKey: "POLISHING_SOLUTION", fieldKey: "d5_polishing_solution" },
+      { itemKey: "HARDENED_ALLOY", fieldKey: "d5_hardened_alloy" },
+    ],
+  },
+};
+
+// A field's display label + unit, straight off BAG_SECTIONS, for the scan
+// results review screen (never a second, separately-typed copy of labels).
+function bagFieldInfo(fieldKey) {
+  for (const section of BAG_SECTIONS) {
+    const f = section.fields.find((x) => x.key === fieldKey);
+    if (f) return f;
+  }
+  // sp_troop_train doubles as D4's field but is defined once in BAG_SECTIONS
+  // (D4 — TROOP TRAINING) — the loop above already finds it there.
+  return null;
+}
+
+// Turns a possibly-comma'd / k-or-m-suffixed number token ("5,000", "1.2k",
+// "3m") into a plain integer. Returns null (never 0) if it can't be read
+// confidently — callers must treat null as "unclear", not "zero".
+function normalizeScannedNumber(digits, suffix) {
+  if (!digits) return null;
+  const n = parseFloat(String(digits).replace(/,/g, ""));
+  if (!isFinite(n)) return null;
+  let out = n;
+  if (suffix) {
+    const s = String(suffix).toLowerCase();
+    if (s === "k") out = n * 1000;
+    if (s === "m") out = n * 1000000;
+  }
+  out = Math.round(out);
+  return out >= 0 ? out : null;
+}
+
+// Finds the best-guess quantity on a line that already matched an item
+// name/alias — looks right after the match first (the usual "Item Name  x
+// 5,000" / "Item Name   5,000" screenshot layout), then anywhere else on the
+// same line, then a lone-number next line (icon+label on one line, count
+// directly under it — also common). Returns null (never invents/guesses)
+// if nothing number-like is found.
+function extractScannedQuantity(line, matchEndIndex, nextLine) {
+  const NUM_RE = /(\d[\d,]*(?:\.\d+)?)\s*([kKmM])?\b/;
+  // Only look AFTER the matched name/tier (e.g. "General Speedup  x 5,000"),
+  // then a lone quantity on the next line (icon+label on one line, count
+  // directly under it). Deliberately does NOT fall back to re-scanning the
+  // WHOLE original line — for a troop-tier match ("T3 Troop"), the tier
+  // digit itself ("3") lives before matchEndIndex and would otherwise be
+  // misread as the quantity, and for any other item a stray number earlier
+  // in the line (a row number, a percentage, etc.) could be too. Returns
+  // null (never invents/guesses) if nothing number-like is found where
+  // expected.
+  const after = line.slice(matchEndIndex);
+  let m = NUM_RE.exec(after);
+  if (m) return normalizeScannedNumber(m[1], m[2]);
+  // A lone quantity on the NEXT line — the common "icon + label on one
+  // line, count directly under it" layout. Allow an "x"/"X"/":" separator
+  // prefix (e.g. "x 5,000") but nothing else, so an unrelated next line of
+  // running text (which might just happen to contain a number somewhere)
+  // is never mistaken for this item's quantity.
+  if (nextLine && /^[xX:]?\s*[\d,]+(?:\.\d+)?\s*[kKmM]?$/.test(nextLine.trim())) {
+    m = NUM_RE.exec(nextLine.trim());
+    if (m) return normalizeScannedNumber(m[1], m[2]);
+  }
+  return null;
+}
+
+// Troop tiers (T1-T9) need their OWN careful match — "T1"/"Tier 1" etc. —
+// distinct from every other item's plain-name alias match, and must never
+// let "T1" match inside "T11"/"T10" or similar. Word-boundaried, and the
+// digit must not be followed by another digit.
+function findTroopTierLine(lines, tierNum) {
+  const re = new RegExp(`\\bt(?:ier)?\\s*-?\\s*${tierNum}(?!\\d)\\b`, "i");
+  for (let i = 0; i < lines.length; i++) {
+    const m = re.exec(lines[i]);
+    if (m) return { line: lines[i], index: i, matchEnd: m.index + m[0].length };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Section-scoped OCR text parser for the SVS item scanners — reuses the
+// exact same "never guess, flag unclear, skip if nothing usable" discipline
+// as parseChampionshipOcrText() above (Alliance Championship's proven
+// screenshot importer), applied to item name + quantity pairs instead of
+// player name + power pairs. This is what makes the scan real detection
+// rather than a stub: Tesseract.js OCRs the player's screenshot into text,
+// and this function is what reads that text.
+//
+// Returns { [fieldKey]: { itemKey, label, value: number|null, confident } }.
+// A fieldKey is present ONLY if its item's name/alias was actually found
+// somewhere in the text — an item never mentioned in the screenshot is left
+// out entirely (not reported as "0" and not reported as "unclear"), so
+// scanning one screenshot for a section never wipes fields that a different
+// screenshot in the same batch already filled confidently (see
+// mergeScanResults below).
+// ---------------------------------------------------------------------------
+function parseItemScanOcrText(text, sectionKey) {
+  const config = SCAN_SECTIONS[sectionKey];
+  const results = {};
+  if (!config) return results;
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const lowerLines = lines.map((l) => l.toLowerCase());
+
+  for (const item of config.items) {
+    const isTroopTier = /^TROOP_T\d$/.test(item.itemKey);
+    if (isTroopTier) {
+      const tierNum = item.itemKey.replace("TROOP_T", "");
+      const found = findTroopTierLine(lines, tierNum);
+      if (!found) continue; // never seen -> leave field untouched, not zero
+      const value = extractScannedQuantity(found.line, found.matchEnd, lines[found.index + 1]);
+      mergeScanResults(results, { [item.fieldKey]: { itemKey: item.itemKey, label: `T${tierNum} Troop`, value, confident: value != null } });
+      continue;
+    }
+
+    const lib = ITEM_IMAGE_LIBRARY[item.itemKey];
+    const names = [lib?.name, ...((lib && lib.aliases) || [])].filter(Boolean).map((s) => s.toLowerCase());
+    let hitIndex = -1;
+    let hitOffset = -1;
+    for (let i = 0; i < lowerLines.length; i++) {
+      const name = names.find((n) => lowerLines[i].includes(n));
+      if (name) {
+        hitIndex = i;
+        hitOffset = lowerLines[i].indexOf(name) + name.length;
+        break;
+      }
+    }
+    if (hitIndex === -1) continue; // item not mentioned in this screenshot
+    const value = extractScannedQuantity(lines[hitIndex], hitOffset, lines[hitIndex + 1]);
+    // Two items CAN target the same fieldKey within one section — today
+    // only GENERAL_SPEEDUP + EXPERT_SKILL_SPEEDUP, both writing sp_general
+    // (there is only one General Speedups field in the current form) — so
+    // this always goes through mergeScanResults rather than a plain
+    // assignment, which sums two confident sightings instead of the
+    // second silently clobbering the first.
+    mergeScanResults(results, { [item.fieldKey]: { itemKey: item.itemKey, label: lib?.name || item.itemKey, value, confident: value != null } });
+  }
+  return results;
+}
+
+// Combines the per-screenshot results from parseItemScanOcrText across
+// MULTIPLE uploaded screenshots (a section scan allows several — §17) into
+// one result per field: a confident (non-null) value always wins over an
+// unclear one already recorded for the same field, and when two screenshots
+// both confidently report the SAME field (e.g. GENERAL_SPEEDUP appears
+// again in a later screenshot, or the wildcard total was re-shown), the sum
+// is used — the common case of "Speedups" screenshots covering different
+// item rows, but occasionally the exact same total shown twice from two
+// angles. This mirrors the Alliance Championship importer's "accumulate
+// across screenshots, don't just take the last one" behavior.
+function mergeScanResults(target, addition) {
+  for (const [fieldKey, res] of Object.entries(addition)) {
+    const existing = target[fieldKey];
+    if (!existing) {
+      target[fieldKey] = { ...res };
+    } else if (existing.confident && res.confident) {
+      target[fieldKey] = { ...res, value: (existing.value || 0) + res.value, itemKey: existing.itemKey, label: existing.label };
+    } else if (res.confident && !existing.confident) {
+      target[fieldKey] = { ...res };
+    }
+    // else: existing stays (either already confident and res isn't, or
+    // neither is confident — keep the first "unclear" record so the review
+    // screen still shows the field was seen but unreadable).
+  }
+  return target;
+}
+
 const SEED_SCHEDULE_DAYS = ["Day 1 — Construction", "Day 2 — Research", "Day 4 — Troop"];
 
 function emptySlots() {
@@ -1767,6 +2105,18 @@ const Store = {
   get bagDrafts() { return this._synced("wos_bag_drafts", {}).get(); },
   set bagDrafts(v) { this._synced("wos_bag_drafts", {}).set(v); },
 
+  // SVS Screenshot/Proof uploads — completely SEPARATE from bagDrafts/
+  // bagSubmissions and from the item image library: this stores metadata
+  // ROWS for player-uploaded evidence screenshots (the actual image bytes
+  // go to Supabase Storage — see uploadSvsProofScreenshot below), never the
+  // reference images from item-images.js. A flat array (not per-member
+  // keyed) so an admin can list/filter across the whole alliance; each row
+  // is { id, userId, allianceId, eventId, sectionKey, storagePath,
+  // fileName, createdAt }. Optional feature: does NOT scan, does NOT change
+  // scoring, does NOT overwrite any bag field — see uploadSvsProofScreenshot.
+  get svsProofUploads() { return this._synced("wos_svs_proof_uploads", []).get(); },
+  set svsProofUploads(v) { this._synced("wos_svs_proof_uploads", []).set(v); },
+
   // Alliance Championship lane plans — a MAP of { [allianceTag]: { players,
   // lanes, primaryPair } }, one independent dataset per alliance, separate
   // from every bag/member key above. See the "Alliance Championship" block
@@ -1851,6 +2201,90 @@ const Store = {
   get currentUser() { return this._get("wos_current_user", null); },
   set currentUser(v) { this._set("wos_current_user", v); },
 };
+
+// ---------------------------------------------------------------------------
+// SVS Screenshot/Proof storage — Supabase Storage only (never localStorage:
+// image bytes don't belong in a Store row). Completely separate system from
+// the reference-image library above: these are PLAYER-uploaded evidence
+// images tied to one submission/section, private, permission-controlled —
+// see schema.sql for the bucket + policies this expects
+// ("svs-submission-screenshots", private). Every function here degrades
+// gracefully (returns { ok:false, reason }) when Supabase isn't configured
+// or the bucket doesn't exist yet, rather than throwing — a state running
+// localStorage-only mode simply doesn't get Proof uploads, exactly like any
+// other Supabase-only feature in this app.
+// ---------------------------------------------------------------------------
+const SVS_PROOF_BUCKET = "svs-submission-screenshots";
+
+function svsProofStorageAvailable() {
+  return !!supabaseClient;
+}
+
+// Uploads one screenshot for a given member/section and records its
+// metadata row in Store.svsProofUploads. Never touches svsDraft.values or
+// any bag field — purely evidence storage. `ctx` = { userId, allianceId,
+// eventId (nullable), sectionKey }. Returns { ok:true, record } or
+// { ok:false, reason }.
+async function uploadSvsProofScreenshot(file, ctx) {
+  if (!svsProofStorageAvailable()) return { ok: false, reason: "not_configured" };
+  if (!file) return { ok: false, reason: "no_file" };
+  const safeName = String(file.name || "screenshot").replace(/[^a-zA-Z0-9._-]/g, "_");
+  const storagePath = `${ctx.allianceId || "no-alliance"}/${ctx.userId || "unknown"}/${ctx.sectionKey}/${Date.now()}-${safeName}`;
+  const { error: uploadError } = await supabaseClient.storage.from(SVS_PROOF_BUCKET).upload(storagePath, file, {
+    contentType: file.type || "application/octet-stream",
+    upsert: false,
+  });
+  if (uploadError) {
+    console.error("SVS proof upload failed:", uploadError);
+    return { ok: false, reason: "upload_failed", error: uploadError };
+  }
+  const record = {
+    id: `proof_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    userId: ctx.userId || null,
+    allianceId: ctx.allianceId || null,
+    eventId: ctx.eventId || null,
+    sectionKey: ctx.sectionKey,
+    storagePath,
+    fileName: file.name || safeName,
+    createdAt: Date.now(),
+  };
+  Store.svsProofUploads = [...Store.svsProofUploads, record];
+  return { ok: true, record };
+}
+
+// A short-lived signed URL to actually VIEW a private proof image (the
+// bucket is private — see schema.sql — so no public URL exists). Returns
+// null on any failure rather than throwing.
+async function svsProofSignedUrl(storagePath, expiresInSeconds) {
+  if (!svsProofStorageAvailable()) return null;
+  const { data, error } = await supabaseClient.storage
+    .from(SVS_PROOF_BUCKET)
+    .createSignedUrl(storagePath, expiresInSeconds || 3600);
+  if (error) {
+    console.error("SVS proof signed URL failed:", error);
+    return null;
+  }
+  return data?.signedUrl || null;
+}
+
+// Every proof row for one member+section (most recent first) — what the
+// "SCREENSHOT / PROOF (OPTIONAL)" block under each section lists.
+function svsProofUploadsFor(userId, sectionKey) {
+  return Store.svsProofUploads
+    .filter((r) => r.userId === userId && r.sectionKey === sectionKey)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+async function deleteSvsProofScreenshot(recordId) {
+  const record = Store.svsProofUploads.find((r) => r.id === recordId);
+  if (!record) return { ok: false, reason: "not_found" };
+  if (svsProofStorageAvailable()) {
+    const { error } = await supabaseClient.storage.from(SVS_PROOF_BUCKET).remove([record.storagePath]);
+    if (error) console.error("SVS proof delete (storage) failed:", error);
+  }
+  Store.svsProofUploads = Store.svsProofUploads.filter((r) => r.id !== recordId);
+  return { ok: true };
+}
 
 // Lucky Wheel gem math. Spins are bought at two price tiers: 1,500 gems
 // for a single spin, or 13,500 gems for a 10-spin bundle (a better

@@ -8,8 +8,10 @@
 -- See ../../SUPABASE_SETUP.md in this project for the full walkthrough,
 -- including why this app uses a single key/value table rather than a fully
 -- relational schema, and a requirement-by-requirement checklist confirming
--- what does and doesn't apply (no auth, storage, edge functions, triggers,
--- views, or stored procedures are used by this app).
+-- what does and doesn't apply (no auth, edge functions, triggers, views, or
+-- stored procedures are used by this app; ONE private Storage bucket is
+-- used, for the SVS My Bag "Screenshot / Proof" uploads — see the bottom
+-- of this file).
 -- ============================================================================
 
 -- --- Table -------------------------------------------------------------
@@ -55,3 +57,25 @@ create policy "app_state anyone can update" on app_state
 -- Lets every open browser tab see another admin's changes live, without a
 -- manual reload.
 alter publication supabase_realtime add table app_state;
+
+-- --- Storage: SVS Screenshot/Proof uploads --------------------------------
+-- Completely separate from app_state and from the item-image reference
+-- library (item-images.js, shipped with the app's own code, never uploaded
+-- anywhere) — this bucket holds PLAYER-uploaded evidence screenshots only
+-- (uploadSvsProofScreenshot in data.js). Created private (public = false):
+-- no public URL exists for any file in it; viewing one requires a
+-- short-lived signed URL the app generates (svsProofSignedUrl in data.js).
+-- Same anon-key trust model as app_state above (no Supabase Auth) — see
+-- the Row Level Security comment above for that tradeoff.
+insert into storage.buckets (id, name, public)
+values ('svs-submission-screenshots', 'svs-submission-screenshots', false)
+on conflict (id) do nothing;
+
+create policy "svs proof screenshots anyone can upload" on storage.objects
+  for insert with check (bucket_id = 'svs-submission-screenshots');
+
+create policy "svs proof screenshots anyone can read" on storage.objects
+  for select using (bucket_id = 'svs-submission-screenshots');
+
+create policy "svs proof screenshots anyone can delete" on storage.objects
+  for delete using (bucket_id = 'svs-submission-screenshots');

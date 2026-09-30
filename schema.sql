@@ -47,3 +47,34 @@ create policy "app_state anyone can update" on app_state
 -- with a toggle, if you prefer the UI). Without this, writes still save
 -- fine, but other open browser tabs won't see them until they reload.
 alter publication supabase_realtime add table app_state;
+
+-- ---------------------------------------------------------------------------
+-- SVS Screenshot/Proof storage — run this section once, ALSO before your
+-- Scan buttons/Proof uploads are used, in the same SQL Editor as above.
+-- Completely separate from app_state and from the item-image reference
+-- library (item-images.js): this is a Storage bucket for PLAYER-uploaded
+-- evidence screenshots (uploadSvsProofScreenshot in data.js), never the
+-- reference images that ship with the app.
+--
+-- The bucket is created PRIVATE (public = false) — no public URL exists for
+-- any file in it; viewing a proof image requires a short-lived signed URL
+-- (see svsProofSignedUrl in data.js), which only this app's own code
+-- generates. "Private" here means "not publicly browsable by URL", not
+-- full per-user access control — this app has no Supabase Auth (see the
+-- comment on app_state above), so, same trust model as everywhere else in
+-- this schema, anyone holding your project's anon key can still request a
+-- signed URL for any path. If you need real per-user access control, put
+-- this behind Supabase Auth — a bigger change than this file covers.
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('svs-submission-screenshots', 'svs-submission-screenshots', false)
+on conflict (id) do nothing;
+
+create policy "svs proof screenshots anyone can upload" on storage.objects
+  for insert with check (bucket_id = 'svs-submission-screenshots');
+
+create policy "svs proof screenshots anyone can read" on storage.objects
+  for select using (bucket_id = 'svs-submission-screenshots');
+
+create policy "svs proof screenshots anyone can delete" on storage.objects
+  for delete using (bucket_id = 'svs-submission-screenshots');
