@@ -415,9 +415,15 @@ const BAG_SECTIONS = [
 const ITEM_IMAGE_LIBRARY = {
   // --- Speedups ---
   GENERAL_SPEEDUP: { name: "General Speedup", category: "speedups", aliases: ["general speedup", "general speedups", "general spdup"], sections: ["SPEEDUPS"] },
-  CONSTRUCTION_SPEEDUP: { name: "Construction Speedup", category: "speedups", aliases: ["construction speedup", "construction speedups", "construction spdup"], sections: ["SPEEDUPS", "D1 — CONSTRUCTION DAY"] },
-  RESEARCH_SPEEDUP: { name: "Research Speedup", category: "speedups", aliases: ["research speedup", "research speedups", "research spdup"], sections: ["SPEEDUPS", "D2 — RESEARCH DAY"] },
-  TROOP_SPEEDUP: { name: "Troop Speedup", category: "speedups", aliases: ["troop speedup", "troop speedups", "troop train speedup", "training speedup", "troop training speedup"], sections: ["SPEEDUPS", "D4 — TROOP TRAINING"] },
+  CONSTRUCTION_SPEEDUP: { name: "Construction Speedup", category: "speedups", aliases: ["construction speedup", "construction speedups", "construction spdup", "construction"], sections: ["SPEEDUPS", "D1 — CONSTRUCTION DAY"] },
+  RESEARCH_SPEEDUP: { name: "Research Speedup", category: "speedups", aliases: ["research speedup", "research speedups", "research spdup", "research"], sections: ["SPEEDUPS", "D2 — RESEARCH DAY"] },
+  // NOTE: every alias here names TRAINING/PROMOTION explicitly — none of
+  // them is a bare "troop ... speedup" wildcard. That's deliberate: the
+  // same Resource & Speedup Summary screen also shows a separate "Troop
+  // Healing Speedup" row, which must NOT be treated as this item (see the
+  // IGNORED_SPEEDUP_LABELS guard in parseItemScanOcrText below) — a generic
+  // "contains troop" match would wrongly catch it.
+  TROOP_SPEEDUP: { name: "Troop Speedup", category: "speedups", aliases: ["troop speedup", "troop speedups", "troop train speedup", "training speedup", "troop training speedup", "troop training speedups", "troop training", "troop promotion speedup", "troop train / promotion speedup", "troop train/promotion speedup"], sections: ["SPEEDUPS", "D4 — TROOP TRAINING"] },
   EXPERT_SKILL_SPEEDUP: { name: "Expert Skill Speedup", category: "speedups", aliases: ["expert skill speedup", "expert skill speedups"], sections: ["SPEEDUPS"] },
 
   // --- Day 1: Construction ---
@@ -604,82 +610,125 @@ function normalizeScannedNumber(digits, suffix) {
 // same line, then a lone-number next line (icon+label on one line, count
 // directly under it — also common). Returns null (never invents/guesses)
 // if nothing number-like is found.
-function extractScannedQuantity(line, matchEndIndex, nextLine) {
-  const NUM_RE = /(\d[\d,]*(?:\.\d+)?)\s*([kKmM])?\b/;
-  // Only look AFTER the matched name/tier (e.g. "General Speedup  x 5,000"),
-  // then a lone quantity on the next line (icon+label on one line, count
-  // directly under it). Deliberately does NOT fall back to re-scanning the
-  // WHOLE original line — for a troop-tier match ("T3 Troop"), the tier
-  // digit itself ("3") lives before matchEndIndex and would otherwise be
-  // misread as the quantity, and for any other item a stray number earlier
-  // in the line (a row number, a percentage, etc.) could be too. Returns
-  // null (never invents/guesses) if nothing number-like is found where
-  // expected.
-  const after = line.slice(matchEndIndex);
-  let m = NUM_RE.exec(after);
+const SCAN_NUM_RE = /(\d[\d,]*(?:\.\d+)?)\s*([kKmM])?\b/;
+// A line that is basically JUST a quantity (icon+label on one line, count
+// under/near it; or a table row's value column OCR'd as its own line).
+// Allows an "x"/"X"/":" separator prefix (e.g. "x 5,000") and/or a short
+// trailing unit word ("min"/"mins"/"pts") — real screenshots often show
+// "25,314 min" in the value cell.
+const SCAN_LONE_NUM_RE = /^[xX:]?\s*[\d,]+(?:\.\d+)?\s*[kKmM]?\s*(?:min|mins|pts?)?$/i;
+
+// Finds the best-guess quantity for a matched item name/tier. Looks right
+// after the match first (the usual "Item Name  x 5,000" / "Item Name
+// 5,000" layout, including when the name match itself spans a joined
+// multi-line window and the value trails the same window's text). If
+// nothing follows on that window, scans forward through the next few OCR
+// lines for the first one that's basically just a number — real screenshots
+// sometimes interleave a stray icon-glyph line, or put the value a line or
+// two further down than the label, especially when the label itself wrapped
+// across 2-3 lines. Capped at a few lines so an unrelated number further
+// down the screenshot is never mistaken for this item's quantity.
+// Deliberately does NOT fall back to re-scanning the WHOLE original
+// line/window — for a troop-tier match ("T3 Troop"), the tier digit itself
+// ("3") lives before matchEndIndex and would otherwise be misread as the
+// quantity, and for any other item a stray number earlier in the
+// line/window (a row number, a percentage, etc.) could be too. Returns null
+// (never invents/guesses) if nothing number-like is found where expected.
+function extractScannedQuantity(windowText, matchEndIndex, lines, afterIndex) {
+  const after = windowText.slice(matchEndIndex);
+  let m = SCAN_NUM_RE.exec(after);
   if (m) return normalizeScannedNumber(m[1], m[2]);
-  // A lone quantity on the NEXT line — the common "icon + label on one
-  // line, count directly under it" layout (or a table row's value column
-  // OCR'd as its own line). Allow an "x"/"X"/":" separator prefix (e.g.
-  // "x 5,000") and/or a short trailing unit word ("min"/"mins"/"pts") —
-  // real screenshots often show "25,314 min" in the value cell — but
-  // nothing else, so an unrelated next line of running text (which might
-  // just happen to contain a number somewhere) is never mistaken for this
-  // item's quantity.
-  if (nextLine && /^[xX:]?\s*[\d,]+(?:\.\d+)?\s*[kKmM]?\s*(?:min|mins|pts?)?$/i.test(nextLine.trim())) {
-    m = NUM_RE.exec(nextLine.trim());
-    if (m) return normalizeScannedNumber(m[1], m[2]);
+  const LOOKAHEAD = 4;
+  for (let j = afterIndex; j < Math.min(afterIndex + LOOKAHEAD, lines.length); j++) {
+    const candidate = (lines[j] || "").trim();
+    if (SCAN_LONE_NUM_RE.test(candidate)) {
+      m = SCAN_NUM_RE.exec(candidate);
+      if (m) return normalizeScannedNumber(m[1], m[2]);
+    }
   }
   return null;
 }
 
-// Item name labels frequently WRAP across two OCR lines in a narrow table
-// column — "Construction Speedup" as "Construction" / "Speedup",
-// "Troop Training Speedup" as "Troop Training" / "Speedup", etc. (seen in
-// real Whiteout Survival "Resource & Speedup Summary" screenshots — a
-// screenshot with SHORTER labels like "General Speedup"/"Research Speedup"
-// may not wrap and gets found on a single line, while longer ones do, so
-// this always tries both). Searches each line alone first, then that line
-// joined with the next, so a name split across two lines still matches;
-// returns the window's text/match-end (for extractScannedQuantity's
-// same-line "after" search) and the line right after the window (for its
-// next-line fallback).
-function findItemTextMatch(lines, names) {
+// Item name labels frequently WRAP across two (occasionally three) OCR
+// lines in a narrow table column — "Construction Speedup" as
+// "Construction" / "Speedup", "Troop Training Speedup" as "Troop Training"
+// / "Speedup", etc. (seen in real Whiteout Survival "Resource & Speedup
+// Summary" screenshots — a screenshot with SHORTER labels like "General
+// Speedup"/"Research Speedup" may not wrap and gets found on a single line,
+// while longer ones do, so this always tries every window size). Also
+// tolerant of a stray OCR'd icon-glyph line landing between name parts, and
+// of a short alias (like "construction" alone, kept so a garbled "Speedup"
+// doesn't block the match entirely) matching too early against a scrap of
+// an UNRELATED earlier line's trailing text (a short alias can appear at
+// the tail of an otherwise-irrelevant window just by coincidence).
+//
+// Because of that last case, this does NOT stop at the first name match it
+// sees: at every candidate match it immediately tries to read a quantity
+// (via `extractQuantity`, usually extractScannedQuantity bound to this same
+// `lines` array) and keeps scanning for a BETTER candidate — one whose
+// quantity actually resolves — before giving up and falling back to the
+// first (possibly value-less, "seen but unclear") match found. Shared by
+// findItemTextMatch (plain name/alias list) and findTroopTierLine (a tier
+// regex) below, which differ only in how a window is tested for a match.
+function scanLinesForValue(lines, testWindow, extractQuantity) {
+  const MAX_WINDOW = 3;
+  let fallback = null; // first match seen, even if no quantity resolved
   for (let i = 0; i < lines.length; i++) {
-    const low1 = lines[i].toLowerCase();
-    let name = names.find((n) => low1.includes(n));
-    if (name) {
-      return { windowText: lines[i], matchEnd: low1.indexOf(name) + name.length, nextLine: lines[i + 1] };
-    }
-    if (i + 1 < lines.length) {
-      const joined = `${lines[i]} ${lines[i + 1]}`;
-      const lowJ = joined.toLowerCase();
-      name = names.find((n) => lowJ.includes(n));
-      if (name) {
-        return { windowText: joined, matchEnd: lowJ.indexOf(name) + name.length, nextLine: lines[i + 2] };
-      }
+    for (let w = Math.min(MAX_WINDOW, lines.length - i); w >= 1; w--) {
+      const windowText = lines.slice(i, i + w).join(" ");
+      const matchEnd = testWindow(windowText);
+      if (matchEnd == null) continue;
+      const afterIndex = i + w;
+      const value = extractQuantity(windowText, matchEnd, afterIndex);
+      if (value != null) return { windowText, matchEnd, afterIndex, value };
+      if (!fallback) fallback = { windowText, matchEnd, afterIndex, value: null };
     }
   }
-  return null;
+  return fallback;
+}
+
+// Plain name/alias list match — returns the match-end index (after the
+// LONGEST matching alias, so a short alias like "construction" doesn't stop
+// short of trailing text that's actually part of the same label/value run)
+// or null if none of `names` appears in `windowText`.
+//
+// `excludeSubstrings` (optional) lets a caller veto a window outright even
+// if an alias matches it — used for TROOP_SPEEDUP so the "Troop Healing
+// Speedup" row on the same Resource & Speedup Summary screen is NEVER
+// mistaken for "Troop Training Speedup", no matter how the two labels'
+// lines happen to get OCR'd/joined (this is on top of — not instead of —
+// every TROOP_SPEEDUP alias already explicitly naming TRAINING/PROMOTION
+// rather than bare "troop", so a stray "healing" word elsewhere in a window
+// can't produce a false match here either).
+function findItemTextMatch(lines, names, extractQuantity, excludeSubstrings) {
+  return scanLinesForValue(
+    lines,
+    (windowText) => {
+      const low = windowText.toLowerCase();
+      if (excludeSubstrings && excludeSubstrings.some((s) => low.includes(s))) return null;
+      const matches = names.filter((n) => low.includes(n));
+      if (!matches.length) return null;
+      const name = matches.reduce((a, b) => (b.length > a.length ? b : a));
+      return low.indexOf(name) + name.length;
+    },
+    extractQuantity
+  );
 }
 
 // Troop tiers (T1-T9) need their OWN careful match — "T1"/"Tier 1" etc. —
 // distinct from every other item's plain-name alias match, and must never
 // let "T1" match inside "T11"/"T10" or similar. Word-boundaried, and the
-// digit must not be followed by another digit. Same two-line-wrap handling
-// as findItemTextMatch above (e.g. a wrapped "T3\nTroop" label).
-function findTroopTierLine(lines, tierNum) {
+// digit must not be followed by another digit.
+function findTroopTierLine(lines, tierNum, extractQuantity) {
   const re = new RegExp(`\\bt(?:ier)?\\s*-?\\s*${tierNum}(?!\\d)\\b`, "i");
-  for (let i = 0; i < lines.length; i++) {
-    let m = re.exec(lines[i]);
-    if (m) return { line: lines[i], matchEnd: m.index + m[0].length, nextLine: lines[i + 1] };
-    if (i + 1 < lines.length) {
-      const joined = `${lines[i]} ${lines[i + 1]}`;
-      m = re.exec(joined);
-      if (m) return { line: joined, matchEnd: m.index + m[0].length, nextLine: lines[i + 2] };
-    }
-  }
-  return null;
+  return scanLinesForValue(
+    lines,
+    (windowText) => {
+      const m = re.exec(windowText);
+      return m ? m.index + m[0].length : null;
+    },
+    extractQuantity
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -711,25 +760,33 @@ function parseItemScanOcrText(text, sectionKey) {
     const isTroopTier = /^TROOP_T\d$/.test(item.itemKey);
     if (isTroopTier) {
       const tierNum = item.itemKey.replace("TROOP_T", "");
-      const found = findTroopTierLine(lines, tierNum);
+      const found = findTroopTierLine(lines, tierNum, (windowText, matchEnd, afterIndex) =>
+        extractScannedQuantity(windowText, matchEnd, lines, afterIndex)
+      );
       if (!found) continue; // never seen -> leave field untouched, not zero
-      const value = extractScannedQuantity(found.line, found.matchEnd, found.nextLine);
-      mergeScanResults(results, { [item.fieldKey]: { itemKey: item.itemKey, label: `T${tierNum} Troop`, value, confident: value != null } });
+      mergeScanResults(results, { [item.fieldKey]: { itemKey: item.itemKey, label: `T${tierNum} Troop`, value: found.value, confident: found.value != null } });
       continue;
     }
 
     const lib = ITEM_IMAGE_LIBRARY[item.itemKey];
     const names = [lib?.name, ...((lib && lib.aliases) || [])].filter(Boolean).map((s) => s.toLowerCase());
-    const found = findItemTextMatch(lines, names);
+    // See findItemTextMatch's comment: TROOP_SPEEDUP must never be matched
+    // against a window that's actually "Troop Healing Speedup".
+    const excludeSubstrings = item.itemKey === "TROOP_SPEEDUP" ? ["healing"] : undefined;
+    const found = findItemTextMatch(
+      lines,
+      names,
+      (windowText, matchEnd, afterIndex) => extractScannedQuantity(windowText, matchEnd, lines, afterIndex),
+      excludeSubstrings
+    );
     if (!found) continue; // item not mentioned in this screenshot
-    const value = extractScannedQuantity(found.windowText, found.matchEnd, found.nextLine);
     // Two items CAN target the same fieldKey within one section — today
     // only GENERAL_SPEEDUP + EXPERT_SKILL_SPEEDUP, both writing sp_general
     // (there is only one General Speedups field in the current form) — so
     // this always goes through mergeScanResults rather than a plain
     // assignment, which sums two confident sightings instead of the
     // second silently clobbering the first.
-    mergeScanResults(results, { [item.fieldKey]: { itemKey: item.itemKey, label: lib?.name || item.itemKey, value, confident: value != null } });
+    mergeScanResults(results, { [item.fieldKey]: { itemKey: item.itemKey, label: lib?.name || item.itemKey, value: found.value, confident: found.value != null } });
   }
   return results;
 }

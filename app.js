@@ -113,6 +113,17 @@ function fmtNum(n) {
   return String(n);
 }
 
+// Exact (never-abbreviated) number formatting, comma-grouped — used ONLY by
+// the item Scan Review modal (openItemScanModal's reviewPhaseHtml). Scanned
+// values feed scoring calculations, so that screen must show the precise
+// detected quantity (e.g. "21,903"), not fmtNum's "21.9K" shorthand — a
+// rounded review value could silently differ from what actually gets
+// written on Apply. Every other screen keeps using fmtNum as before.
+function fmtExactNum(n) {
+  n = Number(n) || 0;
+  return n.toLocaleString("en-US");
+}
+
 // ---------------------------------------------------------------------------
 // Shell: topbar (with admin link) + bottom nav + router outlet
 // ---------------------------------------------------------------------------
@@ -1226,14 +1237,14 @@ function openItemScanModal(sectionTitle, wizardBodyEl, wrapEl) {
               <div style="display:flex;justify-content:space-between;align-items:center;">
                 <strong style="font-size:12.5px;">${escapeHtml(field ? field.label : res.label)}</strong>
                 <span style="font-size:12.5px;color:${res.confident ? "var(--text)" : "var(--accent-amber)"};">
-                  ${res.confident ? fmtNum(res.value) + (field?.unit ? " " + field.unit : "") : "Could not confidently read this value."}
+                  ${res.confident ? fmtExactNum(res.value) + (field?.unit ? " " + field.unit : "") : "Could not confidently read this value."}
                 </span>
               </div>
               ${
                 hasConflict
                   ? `<div style="display:flex;gap:6px;margin-top:8px;">
-                  <button type="button" class="btn small${choice === "current" ? " primary" : ""}" data-scan-choice="${fieldKey}" data-choice-value="current">Keep Current (${fmtNum(currentVal)})</button>
-                  <button type="button" class="btn small${choice === "scanned" ? " primary" : ""}" data-scan-choice="${fieldKey}" data-choice-value="scanned">Use Scanned (${fmtNum(res.value)})</button>
+                  <button type="button" class="btn small${choice === "current" ? " primary" : ""}" data-scan-choice="${fieldKey}" data-choice-value="current">Keep Current (${fmtExactNum(currentVal)})</button>
+                  <button type="button" class="btn small${choice === "scanned" ? " primary" : ""}" data-scan-choice="${fieldKey}" data-choice-value="scanned">Use Scanned (${fmtExactNum(res.value)})</button>
                 </div>`
                   : ""
               }
