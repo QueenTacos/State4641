@@ -703,3 +703,87 @@ textarea.feedback-input{ width:100%; background:var(--panel-2); border:1px solid
 .cal-color-swatch.selected{ border-color:#fff; box-shadow:0 0 0 1px var(--border), 0 0 0 3px rgba(255,255,255,0.15); }
 .cal-color-custom{ display:inline-flex; align-items:center; justify-content:center; overflow:hidden; }
 .cal-color-custom input[type="color"]{ opacity:0; width:100%; height:100%; cursor:pointer; padding:0; margin:0; border:none; min-width:0; }
+
+/* ===========================================================================
+   MOBILE COMPACTING — "streamline the mobile site" pass.
+   Desktop/tablet layout above is UNCHANGED; everything below only applies
+   at <=768px (no existing breakpoint covered this request generally) and
+   only ADJUSTS spacing/sizing/wrapping of the SAME markup — no feature is
+   hidden or removed. Only CSS variables already defined in :root are used
+   here (no literal colors), so this block is identical for every
+   recolored state/theme and needs no per-state porting.
+   =========================================================================== */
+@media (max-width:768px){
+  main{ padding:10px; }
+  main.home-main{ padding:10px; }
+
+  /* Panels/cards: desktop 16-24px padding -> ~10-12px on mobile. */
+  .panel{ padding:12px 12px; margin-bottom:10px; }
+  .card{ padding:10px 12px; }
+  .modal{ padding:14px; }
+
+  /* Headings: condense the oversized desktop type scale. */
+  h1.page-title{ font-size:20px; margin:2px 0 10px; }
+  .ops-hero-title{ letter-spacing:1px; }
+  .ops-hero-content{ padding:16px 14px; }
+  .ops-hero-desc{ max-width:none; }
+  .section-title{ margin:16px 0 8px; padding-bottom:6px; }
+  .db-heading{ margin:10px 0 6px; }
+  .planner-header{ margin-bottom:10px; gap:8px; }
+
+  /* Buttons: smaller, tighter — but never below a comfortably tappable
+     size. Action rows that are already `display:flex;justify-content:
+     flex-end` (every modal's Cancel/Save row, Edit Alliance, event modals,
+     etc.) stay side-by-side automatically; this only trims their padding. */
+  .btn{ padding:9px 12px; font-size:12px; min-height:36px; }
+  .btn.small{ padding:6px 10px; font-size:11px; min-height:30px; }
+  .modal div[style*="justify-content:flex-end"] .btn,
+  .modal div[style*="justify-content: flex-end"] .btn{ flex:1; }
+
+  /* Form fields: let short fields share a row instead of stacking one per
+     line, by shrinking the fixed 170px desktop min-width that was forcing
+     every .field onto its own row, and letting .field-row's existing
+     flex-wrap do the rest. Pages that already use a 2/3-column grid
+     (.field-grid, .toggle-grid, .champ-stat-row, .stat-row) collapse
+     further below. Full-width fields (Notes/Search/long dropdowns) keep
+     their width because they're wrapped in their own full-row container
+     in the markup, not `.field` directly. */
+  .field-row{ gap:8px; margin-bottom:12px; }
+  .field{ flex:1 1 calc(50% - 4px); min-width:0; }
+  .field select, .field input{ min-width:0; width:100%; height:38px; padding:7px 9px; font-size:12.5px; }
+  .field-grid{ grid-template-columns:repeat(2, 1fr); gap:10px 12px; }
+  .toggle-grid{ grid-template-columns:repeat(3,1fr); }
+  .stat-row{ grid-template-columns:repeat(2,1fr); gap:8px; }
+  .champ-stat-row{ grid-template-columns:repeat(2, 1fr); }
+  .slot-grid{ grid-template-columns:1fr; gap:6px; }
+
+  /* Tabs: scroll horizontally instead of wrapping into several lines —
+     matches what .admin-tabs already does. */
+  .tabs, .day-tabs{ flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:thin; gap:14px; }
+  .tabs button, .day-tabs button{ flex:none; white-space:nowrap; }
+  .cal-month-nav{ gap:6px; }
+  .cal-month-label{ min-width:0; font-size:13px; }
+
+  /* Wide tables (Members, etc.): scroll horizontally in place rather than
+     squeezing 8 columns into a phone width. (Several already have an
+     `overflow-x:auto` wrapper div; this is a safety net for any table
+     that doesn't, per "do not try to display wide desktop tables
+     unchanged.") */
+  table{ display:block; overflow-x:auto; white-space:nowrap; -webkit-overflow-scrolling:touch; }
+
+  /* Modals: near-full-width, capped height with its own scroll so a long
+     form's Save button is never pushed off-screen. */
+  .modal-overlay{ padding:10px; align-items:flex-end; }
+  .modal{ width:calc(100vw - 20px); max-width:calc(100vw - 20px); max-height:85vh; overflow-y:auto; }
+
+  /* Op-cards / stat cards: tighter inner padding, same card. */
+  .op-card-top{ padding:10px 12px 0; }
+  .op-card-body{ padding:8px 12px 6px; }
+  .op-card p{ min-height:0; }
+  .op-card .meta-row{ padding:7px 12px 10px; }
+  .stat-card{ padding:12px 14px 12px 44px; }
+
+  /* Bottom nav / topbar: slightly tighter so more content fits above the fold. */
+  .topbar{ padding:10px 14px 12px 12px; }
+  .bottom-nav{ gap:36px; padding:8px 0; }
+}
