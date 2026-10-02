@@ -46,6 +46,7 @@ const SUPPORTED_LANGUAGES = [
   { code: "pt", label: "Português", englishName: "Portuguese" },
   { code: "fr", label: "Français", englishName: "French" },
   { code: "de", label: "Deutsch", englishName: "German" },
+  { code: "it", label: "Italiano", englishName: "Italian" },
   { code: "pl", label: "Polski", englishName: "Polish" },
   { code: "ru", label: "Русский", englishName: "Russian" },
   { code: "tr", label: "Türkçe", englishName: "Turkish" },
@@ -1639,6 +1640,145 @@ function deleteAllianceFacility(alliance, id) {
   all[alliance] = (all[alliance] || []).filter((r) => r.id !== id);
   Store.allianceFacilities = all;
 }
+
+// EDITABLE ALLIANCE TAG/NAME — renames an alliance IN PLACE across every
+// tag-keyed collection and every embedded tag-string field this codebase
+// has (see the long inventory in the comments on each Store getter above).
+// This app has no relational database — there is no separate `alliance.id`
+// UUID anywhere (Store.alliances is a plain string[] of tags, and that tag
+// string IS the relational key used directly by every collection below) —
+// so "keep the same permanent identity while changing the visible tag" is
+// implemented here as a single atomic cascading rename: every place that
+// currently stores the OLD tag string gets rewritten to the NEW one, in one
+// pass, so nothing is left half-migrated. Append-only HISTORY logs
+// (facilityOwnershipTransfers, and this function's own allianceTagHistory)
+// are intentionally left alone — they record what the tag WAS at the time,
+// per the spec's own "historical snapshot" suggestion.
+//
+// Returns { ok: true } or { ok: false, errorKey, errorParams }.
+function renameAllianceTag(oldTag, newTagRaw, { name, status, notes } = {}, changedByUserId) {
+  const newTag = String(newTagRaw || "").trim();
+  if (!oldTag || !Store.alliances.includes(oldTag)) return { ok: false, errorKey: "admin.allianceNotFound" };
+  if (!newTag) return { ok: false, errorKey: "admin.allianceTagRequired" };
+  const dup = Store.alliances.some((a) => a !== oldTag && a.toLowerCase() === newTag.toLowerCase());
+  if (dup) return { ok: false, errorKey: "admin.allianceTagInUse", errorParams: { tag: newTag } };
+
+  const tagChanged = newTag !== oldTag;
+
+  // 1. Store.alliances — rename in place, same array index/order.
+  if (tagChanged) {
+    Store.alliances = Store.alliances.map((a) => (a === oldTag ? newTag : a));
+  }
+
+  // 2. Simple tag-keyed maps: move the old key to the new key.
+  const renameMapKey = (getV, setV) => {
+    const all = getV();
+    if (!tagChanged || !(oldTag in all)) { return; }
+    const { [oldTag]: val, ...rest } = all;
+    rest[newTag] = val;
+    setV(rest);
+  };
+  if (tagChanged) {
+    renameMapKey(() => Store.allianceColors, (v) => (Store.allianceColors = v));
+    renameMapKey(() => Store.allianceEventTimes, (v) => (Store.allianceEventTimes = v));
+    renameMapKey(() => Store.allianceDiscipline, (v) => (Store.allianceDiscipline = v));
+    renameMapKey(() => Store.allianceR4Jobs, (v) => (Store.allianceR4Jobs = v));
+    renameMapKey(() => Store.allianceTracking, (v) => (Store.allianceTracking = v));
+    renameMapKey(() => Store.allianceReminders, (v) => (Store.allianceReminders = v));
+    renameMapKey(() => Store.napAlliances, (v) => (Store.napAlliances = v));
+    renameMapKey(() => Store.championship, (v) => (Store.championship = v));
+
+    // 3. allianceFacilities — rename the owning key AND fix up any OTHER
+    // alliance's records that reference this tag via sharing/rotation.
+    const facilitiesAll = Store.allianceFacilities;
+    if (oldTag in facilitiesAll) {
+      const { [oldTag]: ownRecords, ...rest } = facilitiesAll;
+      rest[newTag] = ownRecords;
+      Store.allianceFacilities = rest;
+    }
+    const facilitiesAfterOwnerMove = Store.allianceFacilities;
+    let facilitiesTouched = false;
+    const fixedFacilities = {};
+    for (const [owner, list] of Object.entries(facilitiesAfterOwnerMove)) {
+      fixedFacilities[owner] = list.map((r) => {
+        if (r.sharedWithAlliance !== oldTag && r.rotationAlliance !== oldTag) return r;
+        facilitiesTouched = true;
+        return {
+          ...r,
+          sharedWithAlliance: r.sharedWithAlliance === oldTag ? newTag : r.sharedWithAlliance,
+          rotationAlliance: r.rotationAlliance === oldTag ? newTag : r.rotationAlliance,
+        };
+      });
+    }
+    if (facilitiesTouched) Store.allianceFacilities = fixedFacilities;
+
+    // 4. members[].alliance
+    Store.members = Store.members.map((m) => (m.alliance === oldTag ? { ...m, alliance: newTag } : m));
+
+    // 5. allianceCalendarEvents[].allianceId
+    Store.allianceCalendarEvents = Store.allianceCalendarEvents.map((e) =>
+      e.allianceId === oldTag ? { ...e, allianceId: newTag } : e
+    );
+
+    // 6. allianceNotices[].allianceTag
+    Store.allianceNotices = Store.allianceNotices.map((n) =>
+      n.allianceTag === oldTag ? { ...n, allianceTag: newTag } : n
+    );
+
+    // 7. svsSignups[playerId].allianceTag
+    const signups = Store.svsSignups;
+    let signupsTouched = false;
+    const fixedSignups = {};
+    for (const [pid, rec] of Object.entries(signups)) {
+      if (rec && rec.allianceTag === oldTag) { fixedSignups[pid] = { ...rec, allianceTag: newTag }; signupsTouched = true; }
+      else fixedSignups[pid] = rec;
+    }
+    if (signupsTouched) Store.svsSignups = fixedSignups;
+
+    // 8. napFortress / napStronghold — selectedAllianceTag / takenByAllianceTag
+    const fixNap = (list) =>
+      list.map((r) => ({
+        ...r,
+        selectedAllianceTag: r.selectedAllianceTag === oldTag ? newTag : r.selectedAllianceTag,
+        takenByAllianceTag: r.takenByAllianceTag === oldTag ? newTag : r.takenByAllianceTag,
+      }));
+    Store.napFortress = fixNap(Store.napFortress);
+    Store.napStronghold = fixNap(Store.napStronghold);
+
+    // 9. The logged-in user's own session, if they belong to this alliance —
+    // keeps them working without logout/re-creation (B13).
+    if (Store.currentUser && Store.currentUser.alliance === oldTag) {
+      Store.currentUser = { ...Store.currentUser, alliance: newTag };
+    }
+
+    // facilityOwnershipTransfers (historical previousOwner/newOwner tag
+    // strings) is intentionally NOT rewritten — it's an append-only log of
+    // what the tag WAS at the time of each past transfer.
+  }
+
+  // 10. Additive Name/Status/Notes metadata, moved to the new tag's key.
+  const infoAll = Store.allianceInfo;
+  const prevInfo = infoAll[oldTag] || {};
+  const nextInfo = {
+    name: name !== undefined ? name : prevInfo.name,
+    status: status !== undefined ? status : prevInfo.status || "ACTIVE",
+    notes: notes !== undefined ? notes : prevInfo.notes || "",
+  };
+  const infoRest = { ...infoAll };
+  if (tagChanged) delete infoRest[oldTag];
+  infoRest[newTag] = nextInfo;
+  Store.allianceInfo = infoRest;
+
+  // 11. Tag-history audit trail (additive, never overwritten).
+  if (tagChanged) {
+    Store.allianceTagHistory = [
+      ...Store.allianceTagHistory,
+      { id: "ath_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8), allianceId: newTag, oldTag, newTag, changedAt: Date.now(), changedByUserId: changedByUserId || null },
+    ];
+  }
+
+  return { ok: true };
+}
 // STATE FACILITY OWNERSHIP TRANSFER ("FACILITY ADMIN PERMISSIONS" round) —
 // invoked from the Add/Edit Facility modal's Cancel/Transfer prompt when
 // leadership saves a record at a coordinate another alliance currently has
@@ -2280,6 +2420,21 @@ const Store = {
   set napFortress(v) { this._synced("wos_nap_fortress", SEED_NAP_FORTRESS).set(v); },
   get napStronghold() { return this._synced("wos_nap_stronghold", SEED_NAP_STRONGHOLD).get(); },
   set napStronghold(v) { this._synced("wos_nap_stronghold", SEED_NAP_STRONGHOLD).set(v); },
+
+  // Additive alliance metadata — { [allianceTag]: { name, status, notes } }.
+  // Store.alliances itself stays a plain string[] of tags (so every one of
+  // its 25+ existing consumers site-wide needs no change); this is purely
+  // optional extra info an admin can set via Edit Alliance, keyed by the
+  // alliance's CURRENT tag. See renameAllianceTag() below for how a rename
+  // keeps this keyed correctly.
+  get allianceInfo() { return this._synced("wos_alliance_info", {}).get(); },
+  set allianceInfo(v) { this._synced("wos_alliance_info", {}).set(v); },
+
+  // Append-only audit log for alliance tag/name renames — see
+  // renameAllianceTag() below. { id, allianceTag(new), oldTag, newTag,
+  // oldName, newName, changedAt, changedByUserId }.
+  get allianceTagHistory() { return this._synced("wos_alliance_tag_history", []).get(); },
+  set allianceTagHistory(v) { this._synced("wos_alliance_tag_history", []).set(v); },
 
   // Always localStorage-only, Supabase or not — see the comment above
   // SUPABASE_SYNCED_DEFAULTS.

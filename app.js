@@ -616,27 +616,27 @@ function renderHome(el) {
 
     <div class="ops-grid">
       ${opCard({
-        href: "#/svs", color: "var(--accent-purple)", title: "svs_prep",
+        href: "#/svs", color: "#3B82F6", title: t("pages.svsPrep"),
         desc: t("home.svsPrepDesc"),
-        meta: `SVS ${st.svsDate} · MAX FURNACE FC${st.maxFurnaceLevel || "—"}`,
+        meta: t("pages.svsPrepMetaTemplate").replace("{date}", st.svsDate).replace("{level}", st.maxFurnaceLevel || "—"),
         num: "01", iconName: "backpack", tag: t("home.tagUtility").toUpperCase(), scene: "svs_prep", bright: true,
       })}
       ${opCard({
-        href: "#/rookie-off", color: "var(--accent-pink)", title: "rookie_off",
+        href: "#/rookie-off", color: "var(--accent-pink)", title: t("rookieOff.title"),
         desc: t("home.rookieOffDesc"),
-        meta: "TROOP DAY CONTEST",
+        meta: t("pages.rookieOffMeta").toUpperCase(),
         num: "02", iconName: "trophy", tag: t("home.tagCommunity").toUpperCase(), scene: "rookie_off",
       })}
       ${opCard({
-        href: "#/feedback", color: "var(--accent-amber)", title: "feedback",
+        href: "#/feedback", color: "#F97316", title: t("feedback.title"),
         desc: t("home.feedbackDesc"),
-        meta: "TELL US WHAT'S MISSING", plus: true,
+        meta: t("pages.feedbackMeta").toUpperCase(), plus: true,
         num: "03", iconName: "chat", tag: t("home.tagFeedback").toUpperCase(), scene: "feedback", bright: true,
       })}
       ${opCard({
-        href: "#/championship", color: "var(--accent-green)", title: "championship",
+        href: "#/championship", color: "var(--accent-green)", title: t("championship.title"),
         desc: t("home.championshipDesc"),
-        meta: `${championshipTotalPlayersImported()} PLAYERS IMPORTED (ALL ALLIANCES)`,
+        meta: t("pages.championshipMetaTemplate").replace("{count}", championshipTotalPlayersImported()).toUpperCase(),
         num: "04", iconName: "people", tag: t("home.tagPlanning").toUpperCase(), scene: "championship", bright: true,
       })}
       ${opCard({
@@ -646,35 +646,35 @@ function renderHome(el) {
         num: "05", iconName: "shield", tag: t("home.tagRegistration").toUpperCase(), scene: "hero", bright: true,
       })}
       ${opCard({
-        href: "#/bears", color: "var(--accent-purple)", title: "bear_calculator",
-        desc: "Bear Trap hit planner — squad comp, gear thresholds, hit timing.",
-        meta: "ROSTER, TROOPS & AUTO SQUAD BUILDER",
-        num: "06", iconName: "paw", tag: "ANALYTICS", scene: "bear_calculator", bright: true,
+        href: "#/bears", color: "#3B82F6", title: t("pages.bearCalculator"),
+        desc: t("pages.bearCalculatorDesc"),
+        meta: t("pages.bearCalculatorMeta").toUpperCase(),
+        num: "06", iconName: "paw", tag: t("pages.tagAnalytics").toUpperCase(), scene: "bear_calculator", bright: true,
       })}
       ${opCard({
-        href: "#/calendar", color: "var(--accent-pink)", title: "game_calendar",
-        desc: "SVS, Bear Trap, Castle Battle and every other recurring event, on one shared calendar.",
-        meta: `${gameCalendarUpcomingCount()} UPCOMING EVENT${gameCalendarUpcomingCount() === 1 ? "" : "S"}`,
-        num: "07", iconName: "calendar", tag: "SCHEDULE", scene: "championship", bright: true,
+        href: "#/calendar", color: "var(--accent-pink)", title: t("pages.gameCalendar"),
+        desc: t("pages.gameCalendarDesc"),
+        meta: (gameCalendarUpcomingCount() === 1 ? t("pages.gameCalendarMetaOne") : t("pages.gameCalendarMetaOther")).replace("{count}", gameCalendarUpcomingCount()).toUpperCase(),
+        num: "07", iconName: "calendar", tag: t("pages.tagSchedule").toUpperCase(), scene: "championship", bright: true,
       })}
       ${
         !Store.currentUser
           ? ""
           : opCard({
-              href: "#/alliance", color: "var(--accent-amber)", title: "alliance_dashboard",
-              desc: `Everything for ${Store.currentUser.alliance ? escapeHtml(Store.currentUser.alliance) : "your alliance"} — calendar, notifications, event times, participation, discipline.${isAdmin(Store.currentUser) ? "" : " View only."}`,
-              meta: Store.currentUser.alliance ? `YOUR ALLIANCE: ${Store.currentUser.alliance.toUpperCase()}` : "NO ALLIANCE ASSIGNED YET",
-              num: "08", iconName: "shield", tag: "ALLIANCE", scene: "championship", bright: true,
+              href: "#/alliance", color: "#F97316", title: t("pages.allianceDashboard"),
+              desc: `${t("pages.allianceDashboardDescTemplate").replace("{alliance}", Store.currentUser.alliance ? escapeHtml(Store.currentUser.alliance) : t("pages.allianceDashboardDefaultAlliance"))}${isAdmin(Store.currentUser) ? "" : t("pages.allianceDashboardViewOnlySuffix")}`,
+              meta: (Store.currentUser.alliance ? t("pages.allianceDashboardMetaTemplate").replace("{alliance}", Store.currentUser.alliance.toUpperCase()) : t("pages.allianceDashboardNoAlliance")).toUpperCase(),
+              num: "08", iconName: "shield", tag: t("pages.tagAlliance").toUpperCase(), scene: "championship", bright: true,
             })
       }
       ${
         !Store.currentUser
           ? ""
           : opCard({
-              href: "#/nap", color: "var(--accent-green)", title: "nap_info",
-              desc: "Current NAP rules, alliance rankings by power, and Fortress/Stronghold sign ups — view only.",
-              meta: "NON-AGGRESSION PACT",
-              num: "09", iconName: "doc", tag: "STATE INFO", scene: "bear_calculator", bright: true,
+              href: "#/nap", color: "var(--accent-green)", title: t("pages.napDashboard"),
+              desc: t("pages.napDashboardDesc"),
+              meta: t("pages.napDashboardMeta").toUpperCase(),
+              num: "09", iconName: "doc", tag: t("pages.tagStateInfo").toUpperCase(), scene: "bear_calculator", bright: true,
             })
       }
       ${PLANNED_TOOLS.map((tool, i) =>
@@ -2479,10 +2479,10 @@ function svsSignupBlankFromAccount(user) {
 // purely a new navigation entry point, not a second copy of the feature.
 function renderSvsSignupPage(el) {
   el.innerHTML = `
-    <div class="eyebrow">// REGISTRATION</div>
-    <h1 class="page-title" style="color:var(--console-icy-blue)">SVS Battle Sign Up</h1>
+    <div class="eyebrow">// ${t("svsSignupPage.eyebrow").toUpperCase()}</div>
+    <h1 class="page-title" style="color:var(--console-icy-blue)">${t("home.svsSignupTitle")}</h1>
     <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 16px;">
-      Register your alliance tag, furnace level, troop levels, and SVS travel status ahead of the next event.
+      ${t("svsSignupPage.desc")}
     </p>
     <div id="svsSignupPageBody"></div>
   `;
@@ -3149,7 +3149,7 @@ function renderFeedback(el) {
   const user = Store.currentUser;
   el.innerHTML = `
     <div class="eyebrow">// ${t("feedback.eyebrowIdeas").toUpperCase()}</div>
-    <h1 class="page-title" style="color:var(--accent-orange)">feedback</h1>
+    <h1 class="page-title" style="color:var(--accent-orange)">${t("feedback.title")}</h1>
     <div class="panel">
       ${
         user
@@ -3240,7 +3240,7 @@ function renderRookieOff(el) {
 
   el.innerHTML = `
     <div class="eyebrow">// ${t("rookieOff.eyebrow").toUpperCase()}</div>
-    <h1 class="page-title" style="color:var(--accent-pink)">rookie_off</h1>
+    <h1 class="page-title" style="color:var(--accent-pink)">${t("rookieOff.title")}</h1>
     <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 16px;">
       ${t("rookieOff.desc").replace("{pts}", fmtNum(T1_PROMOTION_PTS))}
     </p>
@@ -3682,12 +3682,99 @@ function wireAllianceNotificationsPanel(el, user, lockedAlliance, canManage) {
   );
 }
 
+// EDITABLE ALLIANCE TAG/NAME — Admin-only "Edit Alliance" modal (Tag, Name,
+// Status, Notes) wired from the State Dashboard → Alliances row's [Edit]
+// button above. The actual rename/cascade logic lives in renameAllianceTag()
+// (data.js) — this is purely the UI: validate client-side, call it, and
+// show a localized success/error message. Re-checks role here too (not just
+// relying on the button being hidden) since this modal could in principle
+// be invoked from anywhere.
+function openEditAllianceModal(tag, onDone) {
+  const user = Store.currentUser;
+  if (!user || user.role !== "admin") return;
+  const info = Store.allianceInfo[tag] || {};
+  const state = { tag, name: info.name || "", status: info.status || "ACTIVE", notes: info.notes || "", error: "", success: "" };
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  document.body.appendChild(overlay);
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  function render() {
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:440px;">
+        <button class="close">&times;</button>
+        <h3>${t("admin.editAlliance")}</h3>
+        ${state.success ? `<p style="color:var(--accent-green);font-size:12.5px;">${escapeHtml(state.success)}</p>` : ""}
+        ${state.error ? `<p style="color:var(--accent-red);font-size:12.5px;">${escapeHtml(state.error)}</p>` : ""}
+        ${
+          state.success
+            ? `<div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn primary" id="eaClose">${t("common.close")}</button></div>`
+            : `
+        <div class="field">
+          <label>${t("admin.allianceTag")}</label>
+          <input id="eaTag" value="${escapeHtml(state.tag)}" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:8px 10px;font-size:13px;box-sizing:border-box;" />
+        </div>
+        <div class="field" style="margin-top:8px;">
+          <label>${t("admin.allianceName")}</label>
+          <input id="eaName" value="${escapeHtml(state.name)}" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:8px 10px;font-size:13px;box-sizing:border-box;" />
+        </div>
+        <div class="field" style="margin-top:8px;">
+          <label>${t("admin.status")}</label>
+          <select id="eaStatus" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:8px 10px;font-size:13px;">
+            <option value="ACTIVE" ${state.status === "ACTIVE" ? "selected" : ""}>${t("admin.active")}</option>
+            <option value="INACTIVE" ${state.status === "INACTIVE" ? "selected" : ""}>${t("admin.inactive")}</option>
+          </select>
+        </div>
+        <div class="field" style="margin-top:8px;">
+          <label>${t("admin.notes")}</label>
+          <textarea id="eaNotes" rows="2" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:8px 10px;font-size:13px;box-sizing:border-box;">${escapeHtml(state.notes)}</textarea>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+          <button class="btn" id="eaCancel">${t("common.cancel")}</button>
+          <button class="btn primary" id="eaSave">${t("common.saveChanges")}</button>
+        </div>
+        `
+        }
+      </div>
+    `;
+    overlay.querySelector(".close").onclick = () => overlay.remove();
+    overlay.querySelector("#eaCancel")?.addEventListener("click", () => overlay.remove());
+    overlay.querySelector("#eaClose")?.addEventListener("click", () => {
+      overlay.remove();
+      onDone && onDone();
+    });
+    overlay.querySelector("#eaSave")?.addEventListener("click", () => {
+      if (!user || user.role !== "admin") { state.error = t("admin.adminOnlyRename"); render(); return; }
+      const newTag = overlay.querySelector("#eaTag").value.trim();
+      const newName = overlay.querySelector("#eaName").value.trim();
+      const newStatus = overlay.querySelector("#eaStatus").value;
+      const newNotes = overlay.querySelector("#eaNotes").value;
+      const oldTag = state.tag;
+      const result = renameAllianceTag(oldTag, newTag, { name: newName, status: newStatus, notes: newNotes }, user.id);
+      if (!result.ok) {
+        state.error =
+          result.errorKey === "admin.allianceTagInUse"
+            ? t("admin.allianceTagInUse").replace("{tag}", result.errorParams.tag)
+            : t(result.errorKey);
+        render();
+        return;
+      }
+      state.error = "";
+      state.tag = newTag;
+      state.success = newTag !== oldTag ? t("admin.allianceUpdated").replace("{oldTag}", oldTag).replace("{newTag}", newTag) : t("common.saved");
+      render();
+    });
+  }
+  render();
+}
+
 function renderAdmin(el) {
   const user = Store.currentUser;
   if (!isAdmin(user)) {
     el.innerHTML = `
       <div class="eyebrow">// ${t("admin.eyebrow").toUpperCase()}</div>
-      <h1 class="page-title" style="color:var(--accent-gold)">admin</h1>
+      <h1 class="page-title" style="color:var(--accent-gold)">${t("admin.title")}</h1>
       <div class="panel gate">
         <p>${t("admin.leadershipOnly")}</p>
         ${
@@ -3761,7 +3848,7 @@ function renderAdmin(el) {
 
   el.innerHTML = `
     <div class="eyebrow">// ${t("admin.eyebrow").toUpperCase()}</div>
-    <h1 class="page-title" style="color:var(--accent-gold)">admin</h1>
+    <h1 class="page-title" style="color:var(--accent-gold)">${t("admin.title")}</h1>
     ${
       officerScoped
         ? `<div class="panel" style="background:rgba(248,106,56,.1);border-color:var(--accent-amber);">
@@ -3846,6 +3933,7 @@ function renderAdmin(el) {
             ${allianceBadgeHtml(a)}
             ${escapeHtml(a)}
             <input type="color" data-acolor="${escapeHtml(a)}" value="${Store.allianceColors[a] || "#8a8f98"}" title="Highlight color for ${escapeHtml(a)} (used on EXPORT DAY)" style="width:20px;height:20px;padding:0;border:none;border-radius:3px;background:none;cursor:pointer;" />
+            ${isTrueAdmin ? `<button data-aedit="${escapeHtml(a)}" class="btn small" style="padding:2px 8px;font-size:11px;">${t("admin.editBtn")}</button>` : ""}
             <button data-adel="${i}" style="background:none;border:none;color:var(--accent-red);font-size:11px;">✕</button>
           </span>`
             )
@@ -4167,6 +4255,9 @@ function renderAdmin(el) {
       renderAdmin(el);
     })
   );
+  el.querySelectorAll("[data-aedit]").forEach((btn) =>
+    btn.addEventListener("click", () => openEditAllianceModal(btn.dataset.aedit, () => renderAdmin(el)))
+  );
 
   el.querySelector("#admAddCategory")?.addEventListener("click", () => {
     const name = el.querySelector("#admNewCategory").value.trim();
@@ -4484,7 +4575,7 @@ function renderAllianceDashboardStandalone(el) {
   if (!user) {
     el.innerHTML = `
       <div class="eyebrow">// ALLIANCE DASHBOARD</div>
-      <h1 class="page-title" style="color:var(--accent-gold)">alliance dashboard</h1>
+      <h1 class="page-title" style="color:var(--accent-gold)">${t("pages.allianceDashboard")}</h1>
       <div class="panel gate">
         <p>Sign in to view your alliance's dashboard.</p>
         <button class="btn primary" id="gateSignIn">${t("common.signIn")}</button>
@@ -4496,7 +4587,7 @@ function renderAllianceDashboardStandalone(el) {
 
   el.innerHTML = `
     <div class="eyebrow">// ALLIANCE DASHBOARD</div>
-    <h1 class="page-title" style="color:var(--accent-gold)">alliance dashboard</h1>
+    <h1 class="page-title" style="color:var(--accent-gold)">${t("pages.allianceDashboard")}</h1>
     ${renderAllianceDashboardTabHtml(user, true)}
   `;
   wireAllianceDashboardTab(el, user, true);
@@ -7906,7 +7997,7 @@ function renderNapDashboard(el) {
   if (!napDashboardAccessible(user)) {
     el.innerHTML = `
       <div class="eyebrow">// NAP DASHBOARD</div>
-      <h1 class="page-title" style="color:var(--accent-gold)">nap dashboard</h1>
+      <h1 class="page-title" style="color:var(--accent-gold)">${t("pages.napDashboard")}</h1>
       <div class="panel gate">
         <p>${user ? "Sign in to view the NAP Dashboard." : t("admin.leadershipOnly")}</p>
         ${user ? "" : `<button class="btn primary" id="gateSignIn">${t("common.signIn")}</button>`}
@@ -7918,7 +8009,7 @@ function renderNapDashboard(el) {
 
   el.innerHTML = `
     <div class="eyebrow">// NAP DASHBOARD</div>
-    <h1 class="page-title" style="color:var(--accent-gold)">nap dashboard</h1>
+    <h1 class="page-title" style="color:var(--accent-gold)">${t("pages.napDashboard")}</h1>
     ${renderNapDashboardBodyHtml()}
   `;
 }
@@ -8150,7 +8241,7 @@ let bearCalcRoot = null;
 function renderBearCalculator(el) {
   el.innerHTML = `
     <div class="eyebrow">// ANALYTICS</div>
-    <h1 class="page-title" style="color:var(--accent-amber)">bear_calculator</h1>
+    <h1 class="page-title" style="color:var(--accent-amber)">${t("pages.bearCalculator")}</h1>
     <div class="panel" style="padding:0;overflow:hidden;">
       <div id="bearCalcMount"></div>
     </div>
@@ -8446,7 +8537,7 @@ function renderGameCalendar(el) {
   if (gameCalMode === "alliance") {
     el.innerHTML = `
       <div class="eyebrow">// SCHEDULE</div>
-      <h1 class="page-title" style="color:var(--accent-red)">game_calendar</h1>
+      <h1 class="page-title" style="color:var(--accent-red)">${t("pages.gameCalendar")}</h1>
       <div class="pill-toggle" style="margin-bottom:14px;max-width:360px;">
         <button data-calmode="state">STATE CALENDAR</button>
         <button data-calmode="alliance" class="active">ALLIANCE CALENDAR</button>
@@ -8594,7 +8685,7 @@ function renderGameCalendar(el) {
 
   el.innerHTML = `
     <div class="eyebrow">// SCHEDULE</div>
-    <h1 class="page-title" style="color:var(--accent-red)">game_calendar</h1>
+    <h1 class="page-title" style="color:var(--accent-red)">${t("pages.gameCalendar")}</h1>
     ${
       Store.alliances.length
         ? `<div class="pill-toggle" style="margin-bottom:14px;max-width:360px;">
@@ -8878,7 +8969,7 @@ function renderChampionship(el) {
   if (!canAccessChampionship(user)) {
     el.innerHTML = `
       <div class="eyebrow">// ${t("championship.eyebrow").toUpperCase()}</div>
-      <h1 class="page-title" style="color:var(--accent-green)">championship</h1>
+      <h1 class="page-title" style="color:var(--accent-green)">${t("championship.title")}</h1>
       <div class="panel gate">
         <p>This tool is for alliance leadership — Admin, Leader, or R4.</p>
         <p style="font-size:12px;">Signed in as ${escapeHtml(user.name)} (${roleLabel(user.role)}) — ask an admin for access if you need to plan Championship lanes.</p>
@@ -8889,7 +8980,7 @@ function renderChampionship(el) {
   if (allianceScoped(user) && !user.alliance) {
     el.innerHTML = `
       <div class="eyebrow">// ${t("championship.eyebrow").toUpperCase()}</div>
-      <h1 class="page-title" style="color:var(--accent-green)">championship</h1>
+      <h1 class="page-title" style="color:var(--accent-green)">${t("championship.title")}</h1>
       <div class="panel gate">
         <p>Your account isn't assigned to an alliance yet.</p>
         <p style="font-size:12px;">Ask an admin to set your alliance in Admin → Members — Championship data is scoped per alliance, so R4 access needs an alliance tag first.</p>
@@ -8903,7 +8994,7 @@ function renderChampionship(el) {
   if (!allianceTag) {
     el.innerHTML = `
       <div class="eyebrow">// ${t("championship.eyebrow").toUpperCase()}</div>
-      <h1 class="page-title" style="color:var(--accent-green)">championship</h1>
+      <h1 class="page-title" style="color:var(--accent-green)">${t("championship.title")}</h1>
       <div class="panel gate">
         <p>No alliance tags exist yet.</p>
         <p style="font-size:12px;">Add one in Admin → Alliances before using Alliance Championship — every dataset here is scoped to a specific alliance.</p>
@@ -8925,7 +9016,7 @@ function renderChampionship(el) {
 
   el.innerHTML = `
     <div class="eyebrow">// ${t("championship.eyebrow").toUpperCase()}</div>
-    <h1 class="page-title" style="color:var(--accent-green)">championship</h1>
+    <h1 class="page-title" style="color:var(--accent-green)">${t("championship.title")}</h1>
     <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 16px;">
       Import the Championship player list from screenshots or a dataset, review it, then auto-balance two maxed 20-player lanes as evenly as possible — everyone else overflows into the third lane. Separate from bag planning; nothing here touches member accounts, PINs, or bag data.
     </p>
