@@ -392,6 +392,20 @@ const BAG_SECTIONS = [
       { key: "d5_design_plans", label: "Design Plans", rateNote: null, points: null },
       { key: "d5_polishing_solution", label: "Polishing Solution", rateNote: null, points: null },
       { key: "d5_hardened_alloy", label: "Hardened Alloy", rateNote: null, points: null },
+      // Hero EXP and Hero Gear Enhancement — tracked on request. No SVS Bag
+      // point value has been confirmed for any of these yet (unlike the
+      // other D5 items above, which carry documented rates), so each one is
+      // points:null — same "track the quantity, don't invent a score" choice
+      // already used here for Design Plans/Polishing Solution/Hardened
+      // Alloy. Scan-recognition is wired below (ITEM_IMAGE_LIBRARY +
+      // SCAN_SECTIONS) same as every other D5 item; only the scoring rate is
+      // left open pending confirmed numbers.
+      { key: "d5_hero_exp_1k", label: "Hero EXP (1,000)", rateNote: "Point value not yet confirmed — tracked only", points: null },
+      { key: "d5_hero_exp_5k", label: "Hero EXP (5,000)", rateNote: "Point value not yet confirmed — tracked only", points: null },
+      { key: "d5_hero_exp_10k", label: "Hero EXP (10,000)", rateNote: "Point value not yet confirmed — tracked only", points: null },
+      { key: "d5_hero_exp_50k", label: "Hero EXP (50,000)", rateNote: "Point value not yet confirmed — tracked only", points: null },
+      { key: "d5_gear_enhance_10xp", label: "Hero Gear Enhancement (10 XP)", rateNote: "Point value not yet confirmed — tracked only", points: null },
+      { key: "d5_gear_enhance_100xp", label: "Hero Gear Enhancement (100 XP)", rateNote: "Point value not yet confirmed — tracked only", points: null },
     ],
   },
 ];
@@ -471,10 +485,31 @@ const ITEM_IMAGE_LIBRARY = {
   POLISHING_SOLUTION: { name: "Polishing Solution", category: "hero-power", aliases: ["polishing solution", "polishing solutions"], sections: ["D5 — HERO / POWER"] },
   HARDENED_ALLOY: { name: "Hardened Alloy", category: "hero-power", aliases: ["hardened alloy", "hardened alloys"], sections: ["D5 — HERO / POWER"] },
 
+  // --- Day 5 (cont.): Hero EXP + Hero Gear Enhancement — wired into D5 —
+  // HERO / POWER above. Per-granularity reference images don't exist yet
+  // (only one generic "Hero EXP" icon was ever imported — see HERO_EXP
+  // below — and nothing for Hero Gear Enhancement), so none of these list
+  // an image; that's the existing "no image yet" pattern (TROOP_T1-T9,
+  // HERO_WIDGET) rather than borrowing a wrong substitute. Aliases cover
+  // the common in-game label phrasings for each size.
+  HERO_EXP_1K: { name: "Hero EXP (1,000)", category: "hero-power", aliases: ["hero exp 1,000", "hero exp (1,000)", "hero exp +1,000", "1,000 hero exp", "1,000 exp"], sections: ["D5 — HERO / POWER"] },
+  HERO_EXP_5K: { name: "Hero EXP (5,000)", category: "hero-power", aliases: ["hero exp 5,000", "hero exp (5,000)", "hero exp +5,000", "5,000 hero exp", "5,000 exp"], sections: ["D5 — HERO / POWER"] },
+  HERO_EXP_10K: { name: "Hero EXP (10,000)", category: "hero-power", aliases: ["hero exp 10,000", "hero exp (10,000)", "hero exp +10,000", "10,000 hero exp", "10,000 exp"], sections: ["D5 — HERO / POWER"] },
+  HERO_EXP_50K: { name: "Hero EXP (50,000)", category: "hero-power", aliases: ["hero exp 50,000", "hero exp (50,000)", "hero exp +50,000", "50,000 hero exp", "50,000 exp"], sections: ["D5 — HERO / POWER"] },
+  GEAR_ENHANCE_10XP: { name: "Hero Gear Enhancement (10 XP)", category: "hero-power", aliases: ["gear enhancement 10", "enhancement 10 xp", "hero gear enhancement (10)", "+10 xp"], sections: ["D5 — HERO / POWER"] },
+  GEAR_ENHANCE_100XP: { name: "Hero Gear Enhancement (100 XP)", category: "hero-power", aliases: ["gear enhancement 100", "enhancement 100 xp", "hero gear enhancement (100)", "+100 xp"], sections: ["D5 — HERO / POWER"] },
+
   // --- Extra / future — not wired into any current form field; kept for
   // when a future request adds them, per "don't force unused resources
   // into the current form, but keep them available".
-  HERO_XP: { name: "Hero EXP", category: "misc", aliases: ["hero exp", "hero xp"], sections: [] },
+  //
+  // NOTE: this entry's key used to be HERO_XP, which never matched
+  // item-images.js's actual image key (HERO_EXP) — itemImageUrls("HERO_XP")
+  // silently returned no image even though a generic "Hero EXP" reference
+  // image exists. Renamed to HERO_EXP so the lookup actually resolves. Kept
+  // with sections:[] (not pointed at any single granularity above) since
+  // it's a generic icon, not specific to the 1K/5K/10K/50K sizes.
+  HERO_EXP: { name: "Hero EXP", category: "misc", aliases: ["hero exp", "hero xp"], sections: [] },
   ENERGIZING_POTION: { name: "Energizing Potion", category: "misc", aliases: ["energizing potion", "energizing potions"], sections: [] },
   PET_FOOD: { name: "Pet Food", category: "misc", aliases: ["pet food"], sections: [] },
   STRENGTHENING_SERUM: { name: "Strengthening Serum", category: "misc", aliases: ["strengthening serum", "strengthening serums"], sections: [] },
@@ -572,6 +607,12 @@ const SCAN_SECTIONS = {
       { itemKey: "DESIGN_PLAN", fieldKey: "d5_design_plans" },
       { itemKey: "POLISHING_SOLUTION", fieldKey: "d5_polishing_solution" },
       { itemKey: "HARDENED_ALLOY", fieldKey: "d5_hardened_alloy" },
+      { itemKey: "HERO_EXP_1K", fieldKey: "d5_hero_exp_1k" },
+      { itemKey: "HERO_EXP_5K", fieldKey: "d5_hero_exp_5k" },
+      { itemKey: "HERO_EXP_10K", fieldKey: "d5_hero_exp_10k" },
+      { itemKey: "HERO_EXP_50K", fieldKey: "d5_hero_exp_50k" },
+      { itemKey: "GEAR_ENHANCE_10XP", fieldKey: "d5_gear_enhance_10xp" },
+      { itemKey: "GEAR_ENHANCE_100XP", fieldKey: "d5_gear_enhance_100xp" },
     ],
   },
 };
@@ -749,10 +790,39 @@ function findTroopTierLine(lines, tierNum, extractQuantity) {
 // screenshot in the same batch already filled confidently (see
 // mergeScanResults below).
 // ---------------------------------------------------------------------------
+// Debug-mode switch for the scan pipeline (§16 of the scanner spec) — off by
+// default. Flip with Store.setScanDebug(true) (persists via localStorage, so
+// it survives a reload) or, in the browser console, `localStorage.wos_scan_debug
+// = "1"`. When on, parseItemScanOcrText logs, per screenshot: which section
+// key it was called with, the raw OCR'd text, and for every item in that
+// section's SCAN_SECTIONS config whether it matched (and its parsed value) or
+// was not found — the exact "proof the correct parser is being called, not a
+// silent fallback" the spec asks for.
+function scanDebugEnabled() {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem("wos_scan_debug") === "1";
+  } catch (e) {
+    return false;
+  }
+}
+function setScanDebug(on) {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem("wos_scan_debug", on ? "1" : "0");
+  } catch (e) {}
+}
+
 function parseItemScanOcrText(text, sectionKey) {
   const config = SCAN_SECTIONS[sectionKey];
+  const debug = scanDebugEnabled();
   const results = {};
-  if (!config) return results;
+  if (!config) {
+    if (debug) console.warn(`[scan] "${sectionKey}" has no SCAN_SECTIONS entry — scanner not implemented for this section.`);
+    return results;
+  }
+  if (debug) {
+    console.groupCollapsed(`[scan] section="${sectionKey}"`);
+    console.log("OCR text:", text);
+  }
   const lines = String(text || "")
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -764,7 +834,11 @@ function parseItemScanOcrText(text, sectionKey) {
       const found = findTroopTierLine(lines, tierNum, (windowText, matchEnd, afterIndex) =>
         extractScannedQuantity(windowText, matchEnd, lines, afterIndex)
       );
-      if (!found) continue; // never seen -> leave field untouched, not zero
+      if (!found) {
+        if (debug) console.log(`  ${item.itemKey} -> not found (field "${item.fieldKey}" left untouched)`);
+        continue; // never seen -> leave field untouched, not zero
+      }
+      if (debug) console.log(`  ${item.itemKey} -> matched, value=${found.value} (field "${item.fieldKey}", confident=${found.value != null})`);
       mergeScanResults(results, { [item.fieldKey]: { itemKey: item.itemKey, label: `T${tierNum} Troop`, value: found.value, confident: found.value != null } });
       continue;
     }
@@ -780,7 +854,11 @@ function parseItemScanOcrText(text, sectionKey) {
       (windowText, matchEnd, afterIndex) => extractScannedQuantity(windowText, matchEnd, lines, afterIndex),
       excludeSubstrings
     );
-    if (!found) continue; // item not mentioned in this screenshot
+    if (!found) {
+      if (debug) console.log(`  ${item.itemKey} -> not found (field "${item.fieldKey}" left untouched)`);
+      continue; // item not mentioned in this screenshot
+    }
+    if (debug) console.log(`  ${item.itemKey} -> matched "${found.windowText}", value=${found.value} (field "${item.fieldKey}", confident=${found.value != null})`);
     // Two items CAN target the same fieldKey within one section — today
     // only GENERAL_SPEEDUP + EXPERT_SKILL_SPEEDUP, both writing sp_general
     // (there is only one General Speedups field in the current form) — so
@@ -788,6 +866,10 @@ function parseItemScanOcrText(text, sectionKey) {
     // assignment, which sums two confident sightings instead of the
     // second silently clobbering the first.
     mergeScanResults(results, { [item.fieldKey]: { itemKey: item.itemKey, label: lib?.name || item.itemKey, value: found.value, confident: found.value != null } });
+  }
+  if (debug) {
+    console.log("Final parsed results:", results);
+    console.groupEnd();
   }
   return results;
 }

@@ -1152,13 +1152,30 @@ let svsDraft = null;
 // (checked: no such feature exists anywhere in this codebase today), so
 // this mirrors the app's general small-button styling instead.
 function sectionScanButtonHtml(sectionTitle) {
-  if (!SCAN_SECTIONS[sectionTitle]) return "";
+  // Always render a Scan button for every BAG_SECTIONS section, even one
+  // with no SCAN_SECTIONS entry yet — openItemScanModal shows an explicit
+  // "not implemented yet" message in that case (§19 of the scanner spec)
+  // rather than the button silently vanishing, which otherwise looks
+  // identical to "this section has no scan feature at all".
   return `<button type="button" class="btn small" data-scan-section="${escapeHtml(sectionTitle)}" style="margin-left:auto;">📷 SCAN</button>`;
 }
 
 function openItemScanModal(sectionTitle, wizardBodyEl, wrapEl) {
   const config = SCAN_SECTIONS[sectionTitle];
-  if (!config) return;
+  if (!config) {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:420px;">
+        <button class="close">&times;</button>
+        <h3>SCAN ${escapeHtml(sectionTitle.toUpperCase())}</h3>
+        <p style="font-size:12.5px;color:var(--accent-amber);margin:10px 0 0;">Scanner for this section is not implemented yet.</p>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    overlay.querySelector(".close").onclick = () => overlay.remove();
+    return;
+  }
   const state = { sectionTitle, phase: "upload", files: [], results: null, choices: {} };
 
   const overlay = document.createElement("div");
@@ -1398,6 +1415,83 @@ let svsSignupEditingMemberId = null;
 // survives the table re-rendering on every other edit, same pattern as
 // svsSignupAdminFilters above). "" = All Languages.
 let adminMemberLangFilter = "";
+
+// Admin → Members table column sorting — module-level for the same reason
+// as adminMemberLangFilter above (survives re-renders triggered by other
+// edits on the page). `field: null` = default/unsorted (the table's
+// original Store.members order, exactly as before this feature existed —
+// §15 of the sortable-headers spec: never auto-sort until an admin clicks a
+// header). `dir` is only meaningful once `field` is set.
+let adminMemberSort = { field: null, dir: "asc" };
+
+// RANK's sort order is the alliance-rank hierarchy, not alphabetical —
+// ADMIN > LEADER > R4(officer) > MEMBER (§8 of the spec). Internal role
+// value "officer" displays as "R4" (see roleLabel above) but the SORT order
+// uses the real stored value, same source of truth as everywhere else role
+// comparisons happen in this file.
+const ADMIN_MEMBER_RANK_ORDER = { admin: 0, leader: 1, officer: 2, member: 3 };
+// ACCOUNT STATUS's sort order mirrors memberAccountStatus()'s only two
+// possible return values (§9: "use only statuses that actually exist" — no
+// INACTIVE/LOCKED exists anywhere in this codebase, so none is invented
+// here either).
+const ADMIN_MEMBER_STATUS_ORDER = { ACTIVE: 0, PENDING_SETUP: 1 };
+
+// One comparator per sortable column (§4-§9) — ties never matter for
+// correctness here (stable Array.prototype.sort), only well-definedness.
+// Each always reads the member's CURRENT values (never a cached/stale
+// snapshot), which is what makes §14 (edited values re-sort automatically)
+// correct for free: the table re-renders after every edit (see the
+// data-mfield wiring below) and this comparator re-runs from scratch.
+const ADMIN_MEMBER_SORT_COMPARATORS = {
+  // §4: case-insensitive alphabetical.
+  name: (a, b) => (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase()),
+  // §5: safe string/numeric-string comparison — localeCompare's numeric
+  // option compares digit runs by magnitude without ever converting the ID
+  // to a JS Number (so no float-precision loss on long Gamer IDs), while
+  // still sorting "700956652" after "665449483" etc. correctly.
+  gamerId: (a, b) => (a.gamerId || "").localeCompare(b.gamerId || "", undefined, { numeric: true }),
+  // §6: current visible Alliance Tag (m.alliance IS that live tag — there's
+  // no separate "display name" to go stale here; renameAllianceTag already
+  // rewrites m.alliance in place for every member when a tag is renamed, so
+  // this is never reading a cached SYP after a SYP->MAY rename).
+  alliance: (a, b) => (a.alliance || "").localeCompare(b.alliance || ""),
+  // §7: the currently displayed/localized language label, not the raw code.
+  preferredLanguage: (a, b) => languageEnglishName(a.preferredLanguage).localeCompare(languageEnglishName(b.preferredLanguage)),
+  // §8: role hierarchy, not alphabetical.
+  role: (a, b) => (ADMIN_MEMBER_RANK_ORDER[a.role] ?? 99) - (ADMIN_MEMBER_RANK_ORDER[b.role] ?? 99),
+  // §9: the two real account-status values, not alphabetical (which would
+  // accidentally already match, but this is explicit rather than coincidental).
+  accountStatus: (a, b) => (ADMIN_MEMBER_STATUS_ORDER[memberAccountStatus(a)] ?? 99) - (ADMIN_MEMBER_STATUS_ORDER[memberAccountStatus(b)] ?? 99),
+};
+
+// Applies the current adminMemberLangFilter + adminMemberSort to a member
+// list, in that order (§12: filters first, sort last). Shared by the table
+// render below so the rendered rows and whatever reads "the sorted list"
+// next can never drift apart.
+function sortedFilteredMembers(members) {
+  const filtered = members.filter((m) => !adminMemberLangFilter || (m.preferredLanguage || DEFAULT_LANGUAGE_CODE) === adminMemberLangFilter);
+  if (!adminMemberSort.field) return filtered; // §15: default order until a header is clicked
+  const cmp = ADMIN_MEMBER_SORT_COMPARATORS[adminMemberSort.field];
+  if (!cmp) return filtered;
+  const sorted = [...filtered].sort(cmp);
+  if (adminMemberSort.dir === "desc") sorted.reverse();
+  return sorted;
+}
+
+// One <th> for a sortable Members column — a real <button> inside the <th>
+// (§16: proper button semantics, not a div with a click handler) carrying
+// aria-sort on the <th> itself (the correct element per the ARIA sortable-
+// table pattern) and a chevron indicator (§3) that's always present but
+// dim/subtle on an inactive column, bright on the active one. data-msort
+// carries the field key for the click handler wired below.
+function adminMemberSortHeaderHtml(field, label) {
+  const active = adminMemberSort.field === field;
+  const dir = active ? adminMemberSort.dir : null;
+  const ariaSort = dir === "asc" ? "ascending" : dir === "desc" ? "descending" : "none";
+  const chevron = dir === "desc" ? "↓" : "↑"; // defaults to the ascending glyph when inactive (§3: "subtle sortable indicator")
+  const sortLabel = dir === "asc" ? t("admin.sortAscending") : dir === "desc" ? t("admin.sortDescending") : "";
+  return `<th aria-sort="${ariaSort}"><button type="button" data-msort="${field}" class="btn small" style="background:none;border:none;padding:0;color:inherit;font:inherit;letter-spacing:inherit;display:inline-flex;align-items:center;gap:4px;cursor:pointer;" aria-label="${escapeHtml(label)}${sortLabel ? ` — ${escapeHtml(sortLabel)}` : ""}">${escapeHtml(label)}<span aria-hidden="true" style="opacity:${active ? "1" : ".35"};color:${active ? "var(--accent-purple)" : "inherit"};font-size:10px;">${chevron}</span></button></th>`;
+}
 
 // Admin page tabs — purely organizational (groups the same existing
 // panels that used to run down one long page into tabs); no panel's own
@@ -3971,10 +4065,18 @@ function renderAdmin(el) {
       </div>
       <div style="overflow-x:auto;">
         <table>
-          <thead><tr><th>${t("admin.userName").toUpperCase()}</th><th>${t("admin.gamerId").toUpperCase()}</th><th>${t("admin.alliance").toUpperCase()}</th><th>${t("admin.languageColumn").toUpperCase()}</th><th>${t("admin.resetPin").toUpperCase()}</th><th>${t("admin.rank").toUpperCase()}</th><th>ACCOUNT STATUS</th><th></th></tr></thead>
+          <thead><tr>
+            ${adminMemberSortHeaderHtml("name", t("admin.userName").toUpperCase())}
+            ${adminMemberSortHeaderHtml("gamerId", t("admin.gamerId").toUpperCase())}
+            ${adminMemberSortHeaderHtml("alliance", t("admin.alliance").toUpperCase())}
+            ${adminMemberSortHeaderHtml("preferredLanguage", t("admin.languageColumn").toUpperCase())}
+            <th>${t("admin.resetPin").toUpperCase()}</th>
+            ${adminMemberSortHeaderHtml("role", t("admin.rank").toUpperCase())}
+            ${adminMemberSortHeaderHtml("accountStatus", t("admin.accountStatus").toUpperCase())}
+            <th></th>
+          </tr></thead>
           <tbody>
-            ${members
-              .filter((m) => !adminMemberLangFilter || (m.preferredLanguage || DEFAULT_LANGUAGE_CODE) === adminMemberLangFilter)
+            ${sortedFilteredMembers(members)
               .map(
                 (m) => `
               <tr>
@@ -4355,6 +4457,14 @@ function renderAdmin(el) {
       // that immediately instead of showing a stale row.
       if (field === "alliance" && allianceScoped(Store.currentUser)) {
         renderAdmin(el);
+        return;
+      }
+      // §14 of the sortable-headers spec: if the just-edited field is the
+      // one the table is currently sorted by, re-render so the row jumps to
+      // its correct new position instead of staying put until some other
+      // action happens to re-render the page.
+      if (adminMemberSort.field === field) {
+        renderAdmin(el);
       }
     })
   );
@@ -4448,6 +4558,24 @@ function renderAdmin(el) {
     adminMemberLangFilter = e.target.value;
     renderAdmin(el);
   });
+  // Members table column header sorting (§2 of the sortable-headers spec):
+  // 1st click on a column -> ascending, 2nd click (same column) ->
+  // descending, 3rd click -> reset to the table's default/unsorted order.
+  // Clicking a DIFFERENT column always starts that column fresh at
+  // ascending, same as every familiar sortable-table UI.
+  el.querySelectorAll("[data-msort]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const field = btn.dataset.msort;
+      if (adminMemberSort.field !== field) {
+        adminMemberSort = { field, dir: "asc" };
+      } else if (adminMemberSort.dir === "asc") {
+        adminMemberSort = { field, dir: "desc" };
+      } else {
+        adminMemberSort = { field: null, dir: "asc" };
+      }
+      renderAdmin(el);
+    })
+  );
   el.querySelector("#admClearSlots")?.addEventListener("click", () => {
     const sched = Store.schedule;
     Object.keys(sched).forEach((day) => sched[day].forEach((s) => (s.member = null)));
