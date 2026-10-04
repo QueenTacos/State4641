@@ -2440,16 +2440,42 @@ function renderWizardSubmit(el, wrap) {
   });
   const warnEl = el.querySelector("#wizScheduleWarning");
   const submitBtn = el.querySelector("#wizSubmit");
+  const backBtn = el.querySelector("#wizBack");
+  const msgEl = el.querySelector("#wizMsg");
   let confirmedPastWarning = false;
-  const doSave = () => {
+  let submitting = false;
+  const submitLabel = () => {
+    if (confirmedPastWarning) return "SAVE ANYWAY";
+    return editing ? `SAVE ${escapeHtml(user.name).toUpperCase()}'S BAG` : "SUBMIT BAG";
+  };
+  // SUBMIT must be a confirmed write to Supabase before anything on screen
+  // acts like it succeeded (§ "UPDATE BAG SUBMISSION — PUSH TO SUPABASE
+  // IMMEDIATELY ON SUBMIT"): no marking submitted, no clearing the draft,
+  // no navigating away, until Store.submitBagSubmission resolves ok:true.
+  // On failure, the member's entered data stays exactly as they left it
+  // (svsDraft is never touched) and they get a retryable error instead.
+  const doSave = async () => {
     svsDraft.notes = el.querySelector("#wizNotes").value;
-    svsDraft.updatedAt = Date.now();
-    const all = Store.bagSubmissions;
-    all[user.id] = svsDraft;
-    Store.bagSubmissions = all;
-    // This submission now supersedes the autosaved draft — clear it (and
-    // cancel any still-pending debounced save) so a later visit to MY BAG
-    // starts from what was actually submitted, not a leftover draft.
+    submitting = true;
+    submitBtn.disabled = true;
+    backBtn.disabled = true;
+    submitBtn.textContent = "SUBMITTING…";
+    msgEl.style.color = "var(--accent-red)";
+    msgEl.textContent = "";
+    const result = await Store.submitBagSubmission(user.id, svsDraft);
+    submitting = false;
+    backBtn.disabled = false;
+    if (!result.ok) {
+      console.error("Bag submission failed to save:", result.error);
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitLabel();
+      msgEl.style.color = "var(--accent-red)";
+      msgEl.textContent = "Your submission was NOT saved — the server didn't confirm the write. Your entries are still here; check your connection and try again.";
+      return;
+    }
+    // Confirmed saved — only now is it safe to drop the in-progress draft
+    // (a later visit to MY BAG must start from what was actually
+    // submitted, not a leftover draft) and leave the wizard.
     clearTimeout(draftSaveTimer);
     draftSaveTimer = null;
     const drafts = Store.bagDrafts;
@@ -2461,8 +2487,9 @@ function renderWizardSubmit(el, wrap) {
     svsWizardStep = "backpack";
     finishSubmit();
   };
-  el.querySelector("#wizBack").onclick = () => { svsWizardStep = "timeslots"; refreshSvS(); };
+  backBtn.onclick = () => { if (!submitting) { svsWizardStep = "timeslots"; refreshSvS(); } };
   submitBtn.onclick = () => {
+    if (submitting) return;
     // Defensive re-check: an admin-edit save must still be an admin at the
     // moment it's actually written, not just when the wizard was opened.
     if (editing && !canEditMemberBag(Store.currentUser)) {
@@ -2484,7 +2511,7 @@ function renderWizardSubmit(el, wrap) {
             )
             .join("<br>") +
           `<br><br>Their schedule slot stays as-is unless you go change it yourself on the SCHEDULE tab.`;
-        submitBtn.textContent = "SAVE ANYWAY";
+        submitBtn.textContent = submitLabel();
         return;
       }
     }
@@ -3926,6 +3953,144 @@ function openEditAllianceModal(tag, onDone) {
   render();
 }
 
+// ---------------------------------------------------------------------------
+// ADMIN -> MEMBERS -> "IMPORT DATASET" — bulk-import members from pasted
+// CSV-style text. All parsing/matching/apply logic lives in data.js
+// (parseMemberImportDataset / buildMemberImportPreview /
+// applyMemberImportPreview); this is just the modal UI wrapper, following
+// the same self-contained-overlay pattern as openFacilityModal above
+// (local closure state, rebuilt fresh every time it's opened — nothing
+// here needs to survive a close).
+// ---------------------------------------------------------------------------
+function openMemberImportModal(rerender) {
+  document.getElementById("memberImportOverlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.id = "memberImportOverlay";
+  overlay.className = "modal-overlay";
+  document.body.appendChild(overlay);
+
+  let datasetText = "";
+  let preview = null; // set by "Preview Import"; cleared by editing the text again or Cancel
+
+  const categoryBadgeHtml = (category) => {
+    const map = {
+      new: { cls: "done", label: "NEW" },
+      update: { cls: "done", label: "UPDATE" },
+      conflict: { cls: "open", label: "CONFLICT" },
+      invalid: { cls: "open", label: "INVALID" },
+    };
+    const c = map[category] || map.invalid;
+    return `<span class="status-badge ${c.cls}">${c.label}</span>`;
+  };
+
+  const render = () => {
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:760px;">
+        <button class="close">&times;</button>
+        <h3>Import Dataset</h3>
+        <p style="color:var(--text-dim);font-size:12px;margin-top:-4px;">
+          Paste a CSV-style member list below. Supported columns: <strong>Member Name</strong> (required), Gamer ID, Alliance Tag, Power, Language, Rank, Account Status — any column may be left out, and only the columns you include are ever changed on an existing member.
+        </p>
+        <label style="display:block;font-size:10.5px;color:var(--text-faint);letter-spacing:1px;text-transform:uppercase;margin:12px 0 6px;">Paste Member Dataset</label>
+        <textarea id="memImportText" class="feedback-input" style="min-height:160px;font-family:'SF Mono',Consolas,monospace;font-size:12px;" placeholder="name,power,alliance,gamerId,language,rank&#10;Tacos,2809,YUM,123456789,English,R5&#10;OakleyGirl,1169,YUM,987654321,,R4">${escapeHtml(datasetText)}</textarea>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button class="btn primary small" id="memImportPreviewBtn">Preview Import</button>
+          ${preview ? `<button class="btn small" id="memImportClearBtn">Clear Preview</button>` : ""}
+        </div>
+
+        ${
+          preview
+            ? `
+        <div class="section-title">IMPORT PREVIEW</div>
+        <div class="champ-stat-row" style="margin-bottom:14px;">
+          ${[
+            ["MEMBERS DETECTED", preview.rowsRead],
+            ["WILL BE UPDATED", preview.updateCount],
+            ["WILL BE CREATED", preview.newCount],
+            ["CONFLICTS", preview.conflictCount],
+            ["INVALID ROWS", preview.invalidCount],
+          ]
+            .map(
+              ([label, val]) => `
+            <div style="background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:8px 10px;text-align:center;">
+              <div style="font-size:9.5px;color:var(--text-faint);letter-spacing:.5px;">${label}</div>
+              <div style="font-size:16px;font-weight:700;margin-top:2px;${(label === "CONFLICTS" || label === "INVALID ROWS") && val > 0 ? "color:var(--accent-amber);" : ""}">${val}</div>
+            </div>`
+            )
+            .join("")}
+        </div>
+        ${
+          preview.rows.length
+            ? `<div style="overflow-x:auto;max-height:280px;overflow-y:auto;">
+                <table>
+                  <thead><tr><th>ROW</th><th>MEMBER</th><th>GAMER ID</th><th>ALLIANCE</th><th>STATUS</th><th>NOTES</th></tr></thead>
+                  <tbody>
+                    ${preview.rows
+                      .map((entry) => {
+                        const r = entry.row;
+                        const notes = [entry.reason, ...(r.issues || [])].filter(Boolean).join("; ");
+                        return `
+                      <tr>
+                        <td style="color:var(--text-faint);">${r.lineNumber}</td>
+                        <td>${escapeHtml(r.name || "—")}</td>
+                        <td>${escapeHtml(r.gamerId || "—")}</td>
+                        <td>${escapeHtml(r.alliance || "—")}</td>
+                        <td>${categoryBadgeHtml(entry.category)}</td>
+                        <td style="font-size:11px;color:var(--text-faint);">${escapeHtml(notes)}</td>
+                      </tr>`;
+                      })
+                      .join("")}
+                  </tbody>
+                </table>
+              </div>`
+            : `<div class="empty">Nothing to preview yet.</div>`
+        }
+        `
+            : ""
+        }
+
+        <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap;">
+          <button class="btn" id="memImportCancel">CANCEL</button>
+          <button class="btn primary" id="memImportCommit" ${!preview || preview.newCount + preview.updateCount === 0 ? "disabled" : ""}>IMPORT MEMBERS</button>
+        </div>
+      </div>
+    `;
+
+    overlay.querySelector(".close").onclick = () => overlay.remove();
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+    const textEl = overlay.querySelector("#memImportText");
+    textEl.addEventListener("input", (e) => {
+      datasetText = e.target.value;
+      // Invalidate a stale preview the moment the underlying text changes
+      // again, rather than letting "Import Members" commit a plan that no
+      // longer matches what's in the textarea.
+      if (preview) { preview = null; render(); }
+    });
+
+    overlay.querySelector("#memImportPreviewBtn")?.addEventListener("click", () => {
+      const parsed = parseMemberImportDataset(datasetText);
+      preview = buildMemberImportPreview(parsed.rows, Store.members);
+      render();
+    });
+    overlay.querySelector("#memImportClearBtn")?.addEventListener("click", () => {
+      preview = null;
+      render();
+    });
+    overlay.querySelector("#memImportCancel")?.addEventListener("click", () => overlay.remove());
+    overlay.querySelector("#memImportCommit")?.addEventListener("click", () => {
+      if (!preview) return;
+      const { members, created, updated } = applyMemberImportPreview(preview, Store.members);
+      Store.members = members;
+      overlay.remove();
+      alert(`Import complete — ${created} new member${created === 1 ? "" : "s"} created, ${updated} existing member${updated === 1 ? "" : "s"} updated.`);
+      rerender();
+    });
+  };
+
+  render();
+}
+
 function renderAdmin(el) {
   const user = Store.currentUser;
   if (!isAdmin(user)) {
@@ -4110,7 +4275,10 @@ function renderAdmin(el) {
         ? ""
         : `
     <div class="panel">
-      <div class="planner-header"><strong>${t("admin.members")} (${members.length}${officerScoped ? ` / ${allMembers.length}` : ""})</strong></div>
+      <div class="planner-header">
+        <strong>${t("admin.members")} (${members.length}${officerScoped ? ` / ${allMembers.length}` : ""})</strong>
+        ${isTrueAdmin ? `<button class="btn small" id="admImportMembers">Import Dataset</button>` : ""}
+      </div>
       <p style="font-size:11.5px;color:var(--text-dim);margin-top:-6px;">${t("admin.membersNote")}</p>
       ${
         officerScoped
@@ -4615,6 +4783,10 @@ function renderAdmin(el) {
     // never a second, duplicate record.
     Store.members = [...Store.members, { id: "m" + Date.now(), name, gamerId, alliance, role, pin: "", preferredLanguage: DEFAULT_LANGUAGE_CODE }];
     renderAdmin(el);
+  });
+  el.querySelector("#admImportMembers")?.addEventListener("click", () => {
+    if (!isTrueAdmin) return; // defensive re-check — button only renders for isTrueAdmin in the first place
+    openMemberImportModal(() => renderAdmin(el));
   });
   el.querySelector("#admMemberLangFilter")?.addEventListener("change", (e) => {
     adminMemberLangFilter = e.target.value;

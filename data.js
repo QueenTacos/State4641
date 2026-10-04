@@ -2400,6 +2400,58 @@ const Store = {
   get bagSubmissions() { return this._synced("wos_bag_submissions", {}).get(); },
   set bagSubmissions(v) { this._synced("wos_bag_submissions", {}).set(v); },
 
+  // SUBMIT must be a confirmed write, not the fire-and-forget pattern every
+  // other Store setter uses (see _supabaseSet above — "callers never await
+  // this"). The member-facing SUBMIT button needs to know FOR CERTAIN
+  // whether the submission actually reached the database before telling
+  // them it succeeded (§ "UPDATE BAG SUBMISSION — PUSH TO SUPABASE
+  // IMMEDIATELY ON SUBMIT"). This reuses the exact same app_state row every
+  // other bagSubmissions read/write already uses — the member/user id is
+  // already the map key, so re-submitting the same member's bag always
+  // UPDATES that one key, never creates a duplicate record — but instead
+  // of writing whatever this tab's possibly-stale in-memory cache last
+  // held, it re-fetches the LATEST row from Supabase first and merges only
+  // this one member's record into it right before upserting, so a
+  // different member submitting at the same moment in a different tab
+  // can't be clobbered by this one's snapshot. Returns { ok: true, record }
+  // once the write is CONFIRMED, or { ok: false, error } — the caller
+  // (app.js's doSave) must not mark anything "submitted" or navigate away
+  // until it sees ok:true, and must keep the member's entered data on
+  // screen and offer a retry when it sees ok:false. In localStorage mode
+  // (no Supabase configured) the write is already synchronous/local, so
+  // this just resolves immediately via the normal setter.
+  async submitBagSubmission(userId, submission) {
+    const record = { ...submission, updatedAt: Date.now(), submittedAt: Date.now() };
+    if (!supabaseClient) {
+      const all = this.bagSubmissions;
+      all[userId] = record;
+      this.bagSubmissions = all;
+      return { ok: true, record };
+    }
+    try {
+      const { data, error: fetchError } = await supabaseClient
+        .from("app_state")
+        .select("value")
+        .eq("key", "wos_bag_submissions")
+        .maybeSingle();
+      if (fetchError) return { ok: false, error: fetchError };
+      const latest = { ...(data?.value || {}) };
+      latest[userId] = record;
+      const { error: writeError } = await supabaseClient
+        .from("app_state")
+        .upsert({ key: "wos_bag_submissions", value: latest, updated_at: new Date().toISOString() });
+      if (writeError) return { ok: false, error: writeError };
+      // Confirmed — mirror into the local cache now so every other
+      // already-synchronous Store.bagSubmissions reader (Participation,
+      // MY SUBMISSION, Admin's bag table, ...) sees it on the very next
+      // render, without waiting on the realtime subscription round-trip.
+      this._cache["wos_bag_submissions"] = latest;
+      return { ok: true, record };
+    } catch (error) {
+      return { ok: false, error };
+    }
+  },
+
   // In-progress, not-yet-submitted MY BAG state — same shape as
   // bagSubmissions, keyed by memberId, and synced the same way. Auto-saved
   // (debounced) by app.js as a member fills out the wizard, so a refresh
@@ -3110,6 +3162,283 @@ function buildChampionshipImportPreview(parsedRows, existingPlayers) {
 
 function newChampImportRowId() {
   return "ci_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// ---------------------------------------------------------------------------
+// ADMIN -> MEMBERS -> "IMPORT DATASET" — bulk-import members from pasted
+// CSV-style text. Same two-step shape as the Alliance Championship dataset
+// importer above (parse -> build preview -> apply on explicit confirmation),
+// applied to the member roster instead of one alliance's player list.
+//
+// Supported columns, matched by header name (not position) — any may be
+// omitted, see MEMBER_IMPORT_HEADER_ALIASES: Member Name (required), Gamer
+// ID, Alliance Tag, Power, Language, Rank, Account Status. A header-less
+// paste falls back to a bare [name, power] column order, the same
+// convention parseChampionshipDataset above already uses.
+//
+// CRITICAL — never touches anything outside those seven fields: bag
+// submissions/drafts, selected time slots, SVS signups, PIN, login/account
+// setup, participation history, alliance dashboard data, notifications, and
+// every other per-member record all live under their own Store keys
+// (bagSubmissions, bagDrafts, svsSignups, etc.) keyed by member id, which
+// this importer never reads or writes — and applyMemberImportPreview below
+// only ever sets a field on an EXISTING member when that row actually
+// supplied a value for it, so an update row with just a new Power number
+// can't blank out that member's Gamer ID, Alliance, Language, or Rank.
+// ---------------------------------------------------------------------------
+const MEMBER_IMPORT_HEADER_ALIASES = {
+  name: ["name", "membername", "gamername"],
+  gamerId: ["gamerid", "id", "playerid"],
+  alliance: ["alliance", "alliancetag", "tag"],
+  power: ["power", "troopower"],
+  language: ["language", "lang", "preferredlanguage"],
+  rank: ["rank", "role"],
+  accountStatus: ["accountstatus", "status"],
+};
+
+function normalizeImportHeaderCell(h) {
+  return String(h || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// Maps a Rank import value to this app's stored `role` field. "R4"/"R5"
+// are the in-game alliance-rank terms — matching how roleLabel() already
+// displays the officer role AS "R4" elsewhere in this app (R5 is the
+// in-game alliance leader, so it maps to this app's "leader" role); R1/R2/R3
+// all collapse to plain "member". Returns null when nothing was supplied
+// (caller must leave the existing role untouched), a role string when
+// recognized, or undefined when a value was supplied but not recognized
+// (also left untouched, but reported back as an issue).
+function importRankToRole(raw) {
+  if (raw == null) return null;
+  const v = String(raw).trim();
+  if (!v) return null;
+  const low = v.toLowerCase();
+  if (low === "admin") return "admin";
+  if (low === "leader" || low === "r5") return "leader";
+  if (low === "officer" || low === "r4") return "officer";
+  if (low === "member" || low === "r1" || low === "r2" || low === "r3") return "member";
+  return undefined;
+}
+
+// Maps a Language import value — a stored code ("ru"), native label
+// ("Русский"), or English name ("Russian"), any of which resolve the same
+// way — to a SUPPORTED_LANGUAGES code. Same null/code/undefined contract
+// as importRankToRole above.
+function resolveImportLanguageCode(raw) {
+  if (raw == null) return null;
+  const v = String(raw).trim();
+  if (!v) return null;
+  const low = v.toLowerCase();
+  const found = SUPPORTED_LANGUAGES.find(
+    (l) => l.code.toLowerCase() === low || l.label.toLowerCase() === low || l.englishName.toLowerCase() === low
+  );
+  return found ? found.code : undefined;
+}
+
+// Parses pasted CSV-style text into raw rows — does not check the row
+// against the existing roster at all (see buildMemberImportPreview for
+// that). Member Name is preserved exactly as entered (only surrounding
+// whitespace trimmed), same as parseChampionshipDataset's gamer names.
+function parseMemberImportDataset(text) {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== "");
+  if (!lines.length) return { rowsRead: 0, rows: [] };
+
+  const headerCells = splitCsvLine(lines[0]).map(normalizeImportHeaderCell);
+  const colIndex = {};
+  Object.entries(MEMBER_IMPORT_HEADER_ALIASES).forEach(([field, aliases]) => {
+    const idx = headerCells.findIndex((h) => aliases.includes(h));
+    if (idx !== -1) colIndex[field] = idx;
+  });
+  // A recognized Name column is what makes this a real header row — absent
+  // that, treat the paste as headerless and fall back to [name, power]
+  // column order (matching parseChampionshipDataset's own fallback).
+  const hasHeader = colIndex.name !== undefined;
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+  if (!hasHeader) {
+    colIndex.name = 0;
+    colIndex.power = 1;
+  }
+
+  const cell = (cols, field) => {
+    const idx = colIndex[field];
+    return idx === undefined ? "" : (cols[idx] || "").trim();
+  };
+
+  return {
+    rowsRead: dataLines.length,
+    rows: dataLines.map((line, i) => {
+      const cols = splitCsvLine(line);
+      const name = cell(cols, "name");
+      const gamerId = cell(cols, "gamerId");
+      const alliance = cell(cols, "alliance");
+      const powerRaw = cell(cols, "power");
+      const languageRaw = cell(cols, "language");
+      const rankRaw = cell(cols, "rank");
+      const accountStatusRaw = cell(cols, "accountStatus");
+
+      const issues = [];
+      let power = null;
+      if (powerRaw) {
+        power = parsePowerToken(powerRaw);
+        if (power == null) issues.push(`unrecognized Power "${powerRaw}" — ignored`);
+      }
+      const languageCode = resolveImportLanguageCode(languageRaw);
+      if (languageCode === undefined) issues.push(`unrecognized Language "${languageRaw}" — ignored`);
+      const role = importRankToRole(rankRaw);
+      if (role === undefined) issues.push(`unrecognized Rank "${rankRaw}" — ignored`);
+      // Account Status is never stored — see memberAccountStatus — it's
+      // always derived from whether a PIN is set, and import must never
+      // touch PIN/login setup, so this column is accepted (forgiving of
+      // its presence) but never applied.
+      if (accountStatusRaw) issues.push(`Account Status is derived from PIN setup, not imported — ignored`);
+
+      return {
+        lineNumber: i + 1 + (hasHeader ? 1 : 0),
+        name,
+        gamerId,
+        alliance,
+        power,
+        languageCode: languageCode === undefined ? null : languageCode,
+        role: role === undefined ? null : role,
+        issues,
+        invalidReason: name ? null : "missing Member Name",
+      };
+    }),
+  };
+}
+
+function newMemberImportRowId() {
+  return "mi_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// Classifies each parsed row against the EXISTING roster:
+//   "invalid"  — missing Member Name; can't be imported at all.
+//   "conflict" — ambiguous, and so always skipped rather than guessed:
+//                Gamer ID and Member Name point at two DIFFERENT existing
+//                members; two rows in this same paste share a Gamer ID; or
+//                (no Gamer ID given) the Member Name matches more than one
+//                existing member.
+//   "update"   — Gamer ID (preferred) or, failing that, Member Name
+//                matches exactly one existing member.
+//   "new"      — matches no existing member; will be created.
+// Gamer ID is always checked first and wins over Member Name whenever both
+// are present ("Use Gamer ID as the primary unique identifier when
+// available") — Member Name is only ever the fallback for a row with no
+// Gamer ID supplied at all.
+function buildMemberImportPreview(parsedRows, existingMembers) {
+  const byGamerId = new Map(
+    (existingMembers || []).filter((m) => m.gamerId).map((m) => [m.gamerId.trim().toLowerCase(), m])
+  );
+  const byNameLower = new Map();
+  (existingMembers || []).forEach((m) => {
+    const key = (m.name || "").trim().toLowerCase();
+    if (!key) return;
+    if (!byNameLower.has(key)) byNameLower.set(key, []);
+    byNameLower.get(key).push(m);
+  });
+
+  const seenGamerIdsThisBatch = new Map(); // lowercased gamerId -> first row's lineNumber
+  let newCount = 0, updateCount = 0, conflictCount = 0, invalidCount = 0;
+  const rows = [];
+
+  parsedRows.forEach((r) => {
+    if (r.invalidReason) {
+      invalidCount++;
+      rows.push({ tempId: newMemberImportRowId(), category: "invalid", reason: r.invalidReason, row: r });
+      return;
+    }
+
+    const gamerIdKey = r.gamerId ? r.gamerId.trim().toLowerCase() : "";
+    if (gamerIdKey && seenGamerIdsThisBatch.has(gamerIdKey)) {
+      conflictCount++;
+      rows.push({
+        tempId: newMemberImportRowId(),
+        category: "conflict",
+        reason: `Gamer ID also used on row ${seenGamerIdsThisBatch.get(gamerIdKey)} in this paste`,
+        row: r,
+      });
+      return;
+    }
+    if (gamerIdKey) seenGamerIdsThisBatch.set(gamerIdKey, r.lineNumber);
+
+    const byId = gamerIdKey ? byGamerId.get(gamerIdKey) : null;
+    const nameMatches = r.name ? byNameLower.get(r.name.trim().toLowerCase()) || [] : [];
+
+    let matched = null;
+    let category = "new";
+    let reason = "";
+
+    if (byId) {
+      if (nameMatches.length === 1 && nameMatches[0] !== byId) {
+        category = "conflict";
+        reason = `Gamer ID matches "${byId.name}" but Member Name matches a different existing member, "${nameMatches[0].name}"`;
+      } else {
+        matched = byId;
+        category = "update";
+      }
+    } else if (nameMatches.length === 1) {
+      matched = nameMatches[0];
+      category = "update";
+    } else if (nameMatches.length > 1) {
+      category = "conflict";
+      reason = `${nameMatches.length} existing members are named "${r.name}" — add Gamer ID to tell them apart`;
+    }
+
+    if (category === "conflict") conflictCount++;
+    else if (category === "update") updateCount++;
+    else newCount++;
+
+    rows.push({ tempId: newMemberImportRowId(), category, reason, row: r, matchedId: matched ? matched.id : null });
+  });
+
+  return { rowsRead: parsedRows.length, newCount, updateCount, conflictCount, invalidCount, rows };
+}
+
+// Applies a previously-built preview to the member roster. Returns a NEW
+// array (the caller assigns it to Store.members) plus { created, updated }
+// counts. "update" rows patch ONLY the fields that row actually supplied a
+// value for onto the matched member — gamerId/alliance/power/
+// preferredLanguage/role are each set independently, never as one blind
+// object spread of the whole row, so a row that only supplied Power can't
+// blank out that member's Alliance or Language. "new" rows create a fresh
+// record with no pin (same as the existing Admin "Add Member" row — the
+// member claims it later via First Time Setup) and Language defaulted to
+// English when none was supplied. "conflict"/"invalid" rows are always
+// skipped, never guessed through.
+function applyMemberImportPreview(preview, existingMembers) {
+  const members = [...existingMembers];
+  let created = 0, updated = 0;
+  preview.rows.forEach((entry, i) => {
+    if (entry.category === "invalid" || entry.category === "conflict") return;
+    const r = entry.row;
+    if (entry.category === "update") {
+      const idx = members.findIndex((m) => m.id === entry.matchedId);
+      if (idx === -1) return;
+      const patch = {};
+      if (r.gamerId) patch.gamerId = r.gamerId;
+      if (r.alliance) patch.alliance = r.alliance;
+      if (r.power != null) patch.power = r.power;
+      if (r.languageCode) patch.preferredLanguage = r.languageCode;
+      if (r.role) patch.role = r.role;
+      members[idx] = { ...members[idx], ...patch };
+      updated++;
+    } else {
+      members.push({
+        id: "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) + i,
+        name: r.name,
+        gamerId: r.gamerId || "",
+        alliance: r.alliance || "",
+        role: r.role || "member",
+        pin: "",
+        preferredLanguage: r.languageCode || DEFAULT_LANGUAGE_CODE,
+        ...(r.power != null ? { power: r.power } : {}),
+      });
+      created++;
+    }
+  });
+  return { members, created, updated };
 }
 
 // Splits `items` (each { id, power }, any order) into two groups, each
