@@ -164,16 +164,12 @@ function renderShell() {
   document.getElementById("signInBtn")?.addEventListener("click", openSignIn);
   document.getElementById("myAccountBtn")?.addEventListener("click", openMyAccount);
   document.getElementById("signOutBtn")?.addEventListener("click", () => {
-    // Flush any pending debounced draft save first — svsWizardTargetUser()
-    // (and so the draft's owner id) can no longer be resolved once
-    // currentUser is cleared.
-    flushDraftAutosave();
+    // Clear every per-user wizard/draft singleton (MY BAG's svsDraft
+    // included — see resetPerUserSessionState) so whoever signs in next on
+    // this browser never inherits this member's in-progress or saved
+    // values. Flushes this member's own pending autosave first.
+    resetPerUserSessionState();
     Store.currentUser = null;
-    // Don't leak one player's in-progress (unsaved) SVS Alliance Signup
-    // edits/notices to whoever signs in next on this browser.
-    svsSignupDraft = null;
-    svsSignupError = "";
-    svsSignupSavedNotice = false;
     renderShell();
     router();
   });
@@ -326,6 +322,11 @@ function renderLoginPane(pane, overlay) {
       return;
     }
 
+    // Clear any stale per-user wizard/draft state left over from whoever
+    // was signed in before (or a never-saved MY BAG draft started while
+    // signed out isn't possible, but this also covers switching straight
+    // from one member to another without an explicit sign-out in between).
+    resetPerUserSessionState();
     Store.currentUser = member;
     overlay.remove();
     applyLocaleAndRerender();
@@ -379,6 +380,12 @@ function renderSignUpPane(pane, overlay) {
 
     const member = { id: "m" + Date.now(), name, gamerId, alliance, role: "member", pin, preferredLanguage };
     Store.members = [...members, member];
+    // A brand-new account must start with a blank MY BAG — clear any
+    // leftover wizard/draft state from whoever was signed in before this
+    // (see resetPerUserSessionState), so this new member.id has nothing to
+    // load from Store.bagDrafts/bagSubmissions and loadDraft() falls
+    // through to blankDraft().
+    resetPerUserSessionState();
     Store.currentUser = member;
     overlay.remove();
     applyLocaleAndRerender();
@@ -476,6 +483,10 @@ function renderClaimPane(pane, overlay) {
       // Never creates a second record for this person.
       members[idx] = { ...members[idx], gamerId, pin, preferredLanguage };
       Store.members = members;
+      // Same reasoning as New Member sign-up: this freshly-activated
+      // account must not inherit whoever was signed in before on this
+      // browser (see resetPerUserSessionState).
+      resetPerUserSessionState();
       Store.currentUser = members[idx];
       overlay.remove();
       applyLocaleAndRerender();
@@ -1760,6 +1771,41 @@ window.addEventListener("beforeunload", flushDraftAutosave);
 // close/switch — pagehide is the reliable equivalent there.
 window.addEventListener("pagehide", flushDraftAutosave);
 
+// ---------------------------------------------------------------------------
+// URGENT fix — "MEMBER BAG DATA IS LEAKING BETWEEN USERS": every per-user,
+// in-memory wizard/draft singleton (svsDraft, svsSignupDraft, and the admin
+// "editing on behalf of" pointers) MUST be cleared at every point where
+// WHICH member is signed in changes — sign out, sign back in as someone
+// else, create a brand-new account, or finish First-Time Setup. Without
+// this, e.g. `svsDraft` (see its declaration above) keeps pointing at
+// whichever member last opened MY BAG in this browser tab: `renderSvSWizard`
+// only calls `loadDraft(user)` when `svsDraft` is still null
+// (`if (!svsDraft) svsDraft = loadDraft(user);`), so the NEXT member to sign
+// in and open MY BAG would see the PREVIOUS member's in-progress/saved bag
+// values instead of their own (or, for a brand-new account, an empty one).
+// The data in Store.bagSubmissions/Store.bagDrafts was always correctly
+// keyed by member id (see loadDraft/doSave) — the leak was purely this
+// stale in-memory pointer surviving an identity change, never the
+// underlying storage. Call this at EVERY site that changes
+// Store.currentUser to a *different* person (never needed for an update to
+// the same still-signed-in user, e.g. a profile-field save).
+function resetPerUserSessionState() {
+  // Flush the OUTGOING user's pending debounced keystrokes first — this
+  // must happen before anything below, while svsWizardTargetUser() can
+  // still resolve who they were (it falls back through svsEditingMemberId,
+  // which this function is about to clear).
+  flushDraftAutosave();
+  clearTimeout(draftSaveTimer);
+  draftSaveTimer = null;
+  svsDraft = null;
+  svsWizardStep = "backpack";
+  svsEditingMemberId = null;
+  svsSignupDraft = null;
+  svsSignupError = "";
+  svsSignupSavedNotice = false;
+  svsSignupEditingMemberId = null;
+}
+
 function svsGate(el, msg) {
   el.innerHTML = `
     <div class="panel">
@@ -2336,11 +2382,28 @@ function timeSelectOptionsHtml(selected) {
   return opts.join("");
 }
 
-function countSelectedSlots() {
-  if (svsDraft.availabilityType === "all") return { n: svsDraft.slots.all.filter(Boolean).length, denom: 48 };
+// Counts an svsDraft-shaped submission's selected time slots — `sub`
+// defaults to the in-progress svsDraft (every existing caller, unchanged),
+// but also accepts any saved bag submission object (same shape, since a
+// submission IS svsDraft at the moment it's saved — see doSave() above) so
+// the same single counting rule can be reused by the Participation table's
+// BAG status (§ UPDATE PARTICIPATION STATUS LOGIC — "use the selected
+// time-slot count as the source of truth", never a record's mere existence,
+// points, inventory, or whether the page was opened).
+function countSelectedSlots(sub) {
+  sub = sub || svsDraft;
+  if (sub.availabilityType === "all") return { n: (sub.slots?.all || []).filter(Boolean).length, denom: 48 };
   let n = 0;
-  SEED_SCHEDULE_DAYS.forEach((d) => (n += (svsDraft.slots.byDay[d] || []).filter(Boolean).length));
+  SEED_SCHEDULE_DAYS.forEach((d) => (n += (sub.slots?.byDay?.[d] || []).filter(Boolean).length));
   return { n, denom: 48 * SEED_SCHEDULE_DAYS.length };
+}
+
+// A bag submission counts as SUBMITTED only once 4+ time slots are
+// selected — a saved record with fewer than 4 (including a record with 0,
+// e.g. saved before any slot was tapped) is MISSING, never SUBMITTED.
+const BAG_SUBMITTED_MIN_SLOTS = 4;
+function bagSubmissionIsComplete(sub) {
+  return !!sub && countSelectedSlots(sub).n >= BAG_SUBMITTED_MIN_SLOTS;
 }
 
 function bestBuffDay() {
@@ -4501,13 +4564,12 @@ function renderAdmin(el) {
       Store.members = m;
       if (Store.currentUser && Store.currentUser.id === id) {
         // Sign them out so they re-authenticate with the PIN just set,
-        // rather than continuing on a stale in-memory session. Flush first
-        // in case they have an in-progress bag draft pending autosave.
-        flushDraftAutosave();
+        // rather than continuing on a stale in-memory session. Clears every
+        // per-user wizard/draft singleton too (see resetPerUserSessionState)
+        // so whoever signs in next on this browser doesn't inherit this
+        // member's in-progress MY BAG draft.
+        resetPerUserSessionState();
         Store.currentUser = null;
-        svsSignupDraft = null;
-        svsSignupError = "";
-        svsSignupSavedNotice = false;
         renderShell();
         router();
         return;
@@ -5582,8 +5644,23 @@ function renderAllianceDashEventTimesHtml(viewingAlliance, canManage) {
 }
 
 function renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, svsSignups, canManage) {
+  // BAG and TIME SLOT are two SEPARATE statuses (§ UPDATE PARTICIPATION
+  // TABLE — "BAG and TIME SLOT are separate statuses"), deliberately
+  // re-separated from the previous round, which had made BAG itself derive
+  // from the slot count:
+  //   BAG       — back to the original rule: whether the member has an
+  //               existing bag submission record at all (!!bagSubs[m.id]).
+  //   TIME SLOT — NEW column: SUBMITTED/MISSING only (never the actual
+  //               selected times — "Do NOT display the actual time slots"),
+  //               derived from bagSubmissionIsComplete()'s same 4+ selected
+  //               slots rule as before. A member can be BAG=SUBMITTED with
+  //               TIME SLOT=MISSING (submitted their bag but picked fewer
+  //               than 4 slots), or both SUBMITTED, independently.
   const rows = members
-    .map((m) => ({ m, bag: !!bagSubs[m.id], svs: !!svsSignups[m.id] }))
+    .map((m) => {
+      const sub = bagSubs[m.id];
+      return { m, bag: !!sub, timeSlot: bagSubmissionIsComplete(sub), svs: !!svsSignups[m.id] };
+    })
     .sort((a, b) => Number(a.bag && a.svs) - Number(b.bag && b.svs) || a.m.name.localeCompare(b.m.name));
   const bagRate = members.length ? Math.round((rows.filter((r) => r.bag).length / members.length) * 100) : 0;
   const svsRate = members.length ? Math.round((rows.filter((r) => r.svs).length / members.length) * 100) : 0;
@@ -5597,7 +5674,7 @@ function renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, 
       </div>
       <div style="overflow-x:auto;">
         <table>
-          <thead><tr><th>MEMBER</th><th>BAG</th><th>SVS SIGNUP</th></tr></thead>
+          <thead><tr><th>MEMBER</th><th>BAG</th><th>TIME SLOT</th><th>SVS SIGNUP</th></tr></thead>
           <tbody>
             ${
               rows
@@ -5606,10 +5683,11 @@ function renderAllianceDashParticipationHtml(viewingAlliance, members, bagSubs, 
               <tr>
                 <td>${escapeHtml(r.m.name)}</td>
                 <td>${r.bag ? `<span class="status-badge done">SUBMITTED</span>` : `<span class="status-badge open">MISSING</span>`}</td>
+                <td>${r.timeSlot ? `<span class="status-badge done">SUBMITTED</span>` : `<span class="status-badge open">MISSING</span>`}</td>
                 <td>${r.svs ? `<span class="status-badge done">SIGNED UP</span>` : `<span class="status-badge open">MISSING</span>`}</td>
               </tr>`
                 )
-                .join("") || `<tr><td colspan="3">No members yet.</td></tr>`
+                .join("") || `<tr><td colspan="4">No members yet.</td></tr>`
             }
           </tbody>
         </table>
